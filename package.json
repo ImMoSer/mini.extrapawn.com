@@ -1,0 +1,23 @@
+{
+  "name": "mini.extrapawn.com",
+  "version": "1.0.0",
+  "private": true,
+  "license": "GPL-3.0",
+  "pnpm": {
+    "approvedBuilds": [
+      "esbuild",
+      "stockfish",
+      "unrs-resolver"
+    ]
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  },
+  "packageManager": "pnpm@11.14.0"
+}

@@ -1,0 +1,28 @@
+/* src/assets/fonts.css */
+
+@font-face {
+  font-family: 'Ubuntu';
+  src: url('./fonts/Ubuntu-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Ubuntu';
+  src: url('./fonts/Ubuntu-Italic-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+  font-stretch: 75% 100%;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Ubuntu Condensed';
+  src: url('./fonts/Ubuntu-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+  font-stretch: 75%;
+  font-style: normal;
+  font-display: swap;
+}

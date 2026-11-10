@@ -1,0 +1,45 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "copy-stockfish": "node -e \"import fs from 'fs'; fs.rmSync('public/stockfish', { recursive: true, force: true }); fs.mkdirSync('public/stockfish', { recursive: true }); for (const f of ['stockfish-19-single.js', 'stockfish-19-single.wasm']) { fs.cpSync('node_modules/stockfish/bin/' + f, 'public/stockfish/' + f); }\"",
+    "postinstall": "pnpm run copy-stockfish",
+    "prebuild": "pnpm run copy-stockfish",
+    "dev": "vite",
+    "build": "vue-tsc --build && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --build",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@lichess-org/chessground": "^10.5.0",
+    "chessops": "^0.15.1",
+    "pinia": "^4.1.0",
+    "shared": "workspace:*",
+    "stockfish": "^19.0.1",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tsconfig/node22": "^22.0.6",
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/eslint-config-prettier": "^10.2.0",
+    "@vue/eslint-config-typescript": "^14.9.0",
+    "@vue/tsconfig": "^0.9.1",
+    "eslint": "^10.13.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-boundaries": "^7.2.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-vue": "^10.11.1",
+    "jiti": "^2.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.5",
+    "vue-tsc": "^3.3.13"
+  }
+}
+

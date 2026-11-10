@@ -1,0 +1,9 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  "@resvg/resvg-js": true
+  esbuild: true
+  stockfish: true
+  unrs-resolver: true
+

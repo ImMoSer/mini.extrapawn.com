@@ -1,0 +1,119 @@
+import { desc, eq } from "drizzle-orm";
+import { FastifyPluginAsync } from "fastify";
+import {
+  ALL_CHALLENGE_DISCIPLINES,
+  calculateAttemptPoints,
+  roundPoints,
+  type AppLanguage,
+  type ChallengeDiscipline,
+  type DisciplineAttemptStatsDTO,
+  type UserCabinetDTO,
+} from "shared";
+import { env } from "../config/env.js";
+import { db } from "../db/index.js";
+import { challengeAttempts, clubs, users } from "../db/schema.js";
+import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
+
+export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get("/cabinet", { preHandler: [fastify.authenticate] }, async (req) => {
+    const viewer = req.user;
+
+    const [userRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.telegramId, viewer.telegramId))
+      .limit(1);
+
+    const userAttempts = await db
+      .select()
+      .from(challengeAttempts)
+      .where(eq(challengeAttempts.telegramId, viewer.telegramId));
+
+    const stats = {} as Record<ChallengeDiscipline, DisciplineAttemptStatsDTO>;
+    for (const disc of ALL_CHALLENGE_DISCIPLINES) {
+      stats[disc] = {
+        discipline: disc,
+        total_attempts: 0,
+        solved_count: 0,
+        failed_count: 0,
+        total_points: 0,
+        total_time_ms: 0,
+      };
+    }
+
+    for (const att of userAttempts) {
+      const disc = att.discipline as ChallengeDiscipline;
+      const bucket = stats[disc];
+      if (!bucket) continue;
+
+      const wrongMoves = att.solved
+        ? Math.max(0, att.attempts - 1)
+        : att.attempts;
+
+      bucket.total_attempts += att.attempts;
+      bucket.failed_count += wrongMoves + (att.status === "surrendered" && wrongMoves === 0 ? 1 : 0);
+
+      if (att.solved) {
+        bucket.solved_count += 1;
+        bucket.total_points = roundPoints(
+          bucket.total_points + calculateAttemptPoints(att.solved, att.attempts)
+        );
+        bucket.total_time_ms += Number(att.solvedTimeMs ?? 0);
+      }
+    }
+
+    const allClubRows = await db
+      .select()
+      .from(clubs)
+      .orderBy(desc(clubs.isDefault), desc(clubs.memberCount));
+
+    const clubDtos = await Promise.all(
+      allClubRows.map((c) =>
+        mapClubRowToSummaryDTO(c, viewer.telegramId, viewer.isSuperadmin)
+      )
+    );
+
+    const response: UserCabinetDTO = {
+      user: {
+        telegram_id: viewer.telegramId,
+        username: userRow?.username ?? viewer.username,
+        first_name: userRow?.firstName ?? viewer.firstName,
+        last_name: userRow?.lastName ?? viewer.lastName,
+        avatar_url: userRow?.avatarUrl ?? viewer.avatarUrl,
+        language_code: ((userRow?.languageCode ||
+          viewer.languageCode) as AppLanguage) || "ru",
+        is_superadmin: viewer.isSuperadmin,
+        created_at: userRow?.createdAt
+          ? userRow.createdAt.toISOString()
+          : new Date().toISOString(),
+      },
+      stats,
+      clubs: clubDtos,
+      default_chat_id: env.DEFAULT_CLUB_CHAT_ID,
+      bot_username: env.BOT_USERNAME,
+    };
+
+    return response;
+  });
+
+  fastify.patch<{ Body: { language_code: AppLanguage } }>(
+    "/cabinet/language",
+    { preHandler: [fastify.authenticate] },
+    async (req) => {
+      const lang: AppLanguage =
+        req.body.language_code === "en"
+          ? "en"
+          : req.body.language_code === "de"
+            ? "de"
+            : "ru";
+
+      await db
+        .update(users)
+        .set({ languageCode: lang, updatedAt: new Date() })
+        .where(eq(users.telegramId, req.user.telegramId));
+
+      return { ok: true, language_code: lang };
+    }
+  );
+};
+
