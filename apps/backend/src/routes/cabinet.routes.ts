@@ -3,6 +3,7 @@ import { FastifyPluginAsync } from "fastify";
 import {
   ALL_CHALLENGE_DISCIPLINES,
   calculateAttemptPoints,
+  MAX_OWNED_CLUBS_PER_USER,
   roundPoints,
   type AppLanguage,
   type ChallengeDiscipline,
@@ -73,6 +74,16 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
       )
     );
 
+    const visibleClubs = clubDtos.filter((c) => c.status !== "bot_removed");
+    const myClubs = visibleClubs.filter((c) => c.is_admin);
+    const ownedClubsCount = visibleClubs.filter(
+      (c) =>
+        !c.is_default &&
+        (viewer.isSuperadmin
+          ? c.owner_telegram_id === viewer.telegramId
+          : c.is_admin)
+    ).length;
+
     const response: UserCabinetDTO = {
       user: {
         telegram_id: viewer.telegramId,
@@ -88,7 +99,10 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
           : new Date().toISOString(),
       },
       stats,
-      clubs: clubDtos,
+      clubs: visibleClubs,
+      my_clubs: myClubs,
+      owned_clubs_count: ownedClubsCount,
+      max_owned_clubs: MAX_OWNED_CLUBS_PER_USER,
       default_chat_id: env.DEFAULT_CLUB_CHAT_ID,
       bot_username: env.BOT_USERNAME,
     };

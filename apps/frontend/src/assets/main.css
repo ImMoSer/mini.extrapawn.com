@@ -223,3 +223,54 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--theme-scrollbar-thumb-hover);
 }
+
+/* ============================================================================
+ * 4. WOOD4 CHESSBOARD THEME (Synced with app_vue)
+ * ============================================================================ */
+.cg-wrap cg-board {
+  background-color: #b58863;
+  background-image: url('/board/jpg_png/wood4.jpg'), url('/board/jpg_png/wood4.thumbnail.jpg');
+  background-size: cover;
+  background-position: center;
+}
+
+.cg-wrap coords {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 10px;
+  opacity: 0.92;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.cg-wrap coords.ranks coord:nth-child(odd),
+.cg-wrap coords.files coord:nth-child(even) {
+  color: #f3e5d0;
+}
+
+.cg-wrap coords.ranks coord:nth-child(even),
+.cg-wrap coords.files coord:nth-child(odd) {
+  color: #f3e5d0;
+}
+
+.cg-wrap cg-board square.last-move {
+  background-color: rgba(155, 199, 0, 0.44);
+}
+
+.cg-wrap cg-board square.selected {
+  background-color: rgba(20, 85, 30, 0.52);
+}
+
+.cg-wrap cg-board square.move-dest {
+  background: radial-gradient(
+    rgba(20, 85, 30, 0.52) 20%,
+    rgba(20, 85, 30, 0) 22%
+  );
+}
+
+.cg-wrap cg-board square.oc.move-dest {
+  background: radial-gradient(
+    transparent 0%,
+    transparent 79%,
+    rgba(20, 85, 0, 0.42) 80%
+  );
+}

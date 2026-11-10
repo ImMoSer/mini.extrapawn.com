@@ -39,6 +39,10 @@ export async function ensureTeleAppSchemaAndSeed(): Promise<void> {
       language               TEXT NOT NULL DEFAULT 'ru',
       timezone               TEXT NOT NULL DEFAULT 'Europe/Berlin',
       status                 TEXT NOT NULL DEFAULT 'active',
+      is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+      auto_paused            BOOLEAN NOT NULL DEFAULT FALSE,
+      auto_pause_challenge_id INTEGER,
+      weekly_schedule        JSONB,
       blocked_reason         TEXT,
       is_default             BOOLEAN NOT NULL DEFAULT FALSE,
       terms_accepted_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -54,6 +58,11 @@ export async function ensureTeleAppSchemaAndSeed(): Promise<void> {
       created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE tele_app.clubs ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE tele_app.clubs ADD COLUMN IF NOT EXISTS auto_paused BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE tele_app.clubs ADD COLUMN IF NOT EXISTS auto_pause_challenge_id INTEGER;
+    ALTER TABLE tele_app.clubs ADD COLUMN IF NOT EXISTS weekly_schedule JSONB;
 
     CREATE TABLE IF NOT EXISTS tele_app.club_admins (
       chat_id     BIGINT NOT NULL REFERENCES tele_app.clubs(chat_id) ON DELETE CASCADE,

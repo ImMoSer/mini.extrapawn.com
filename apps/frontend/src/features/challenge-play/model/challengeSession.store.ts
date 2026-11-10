@@ -13,7 +13,7 @@ import {
   type ReplayStepSnapshot,
 } from "@/entities/chess/lib/chessPosition";
 import { apiRequest } from "@/shared/api/httpClient";
-import { playChessSound } from "@/shared/lib/sound";
+import { playAppliedMoveSound, playChessSound } from "@/shared/lib/sound";
 import {
   triggerHapticImpact,
   triggerHapticNotification,
@@ -135,6 +135,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
       challenge.value = res;
       setupBoardFromChallenge(res);
+      playChessSound("load_position");
 
       if (res.my_entry?.status === "solved") {
         elapsedMs.value = res.my_entry.solved_time_ms ?? 0;
@@ -190,7 +191,12 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
   async function completeSolvedChallenge(): Promise<void> {
     stopTimer();
-    playChessSound("success");
+    playChessSound("tactics_success");
+    if (challenge.value?.discipline !== "tactics") {
+      setTimeout(() => {
+        playChessSound("applause");
+      }, 280);
+    }
     triggerHapticNotification("success");
     feedbackBanner.value = {
       type: "success",
@@ -200,7 +206,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   }
 
   async function recordFailedAttempt(resetToStart: boolean): Promise<void> {
-    playChessSound("error");
+    playChessSound("tactics_error");
     triggerHapticNotification("error");
     feedbackBanner.value = {
       type: "error",
@@ -266,13 +272,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       playedUciMoves.value.push(applied.uci);
       playedSanMoves.value.push(applied.san);
 
-      playChessSound(
-        applied.isCheck
-          ? "check"
-          : applied.isCapture
-            ? "capture"
-            : "move"
-      );
+      playAppliedMoveSound(applied);
 
       void checkGaviotaIfFewPieces(currentFen.value);
 
@@ -307,9 +307,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         lastMove.value = [applied.from, applied.to];
         playedUciMoves.value.push(applied.uci);
         playedSanMoves.value.push(applied.san);
-        playChessSound(
-          applied.isCheck ? "check" : applied.isCapture ? "capture" : "move"
-        );
+        playAppliedMoveSound(applied);
       } catch {
         // Ignore illegal move
       }
@@ -342,9 +340,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       playedSanMoves.value.push(preview.san);
       scenarioStepIndex.value += 1;
       triggerHapticImpact("light");
-      playChessSound(
-        preview.isCheck ? "check" : preview.isCapture ? "capture" : "move"
-      );
+      playAppliedMoveSound(preview);
 
       // Check if puzzle is immediately solved
       if (
@@ -368,13 +364,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         playedSanMoves.value.push(botApplied.san);
         scenarioStepIndex.value += 1;
         isBotThinking.value = false;
-        playChessSound(
-          botApplied.isCheck
-            ? "check"
-            : botApplied.isCapture
-              ? "capture"
-              : "move"
-        );
+        playAppliedMoveSound(botApplied);
       }
 
       // If scripted phase just ended in `scenarioPlus`, bot plays next move via Engine Hub
@@ -395,9 +385,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     playedUciMoves.value.push(applied.uci);
     playedSanMoves.value.push(applied.san);
     triggerHapticImpact("light");
-    playChessSound(
-      applied.isCheck ? "check" : applied.isCapture ? "capture" : "move"
-    );
+    playAppliedMoveSound(applied);
 
     if (applied.isCheckmate) {
       await completeSolvedChallenge();
@@ -456,11 +444,15 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       0,
       Math.min(replayTimeline.value.length - 1, index)
     );
+    const prevIndex = replayStepIndex.value;
     replayStepIndex.value = clamped;
     const snap = replayTimeline.value[clamped];
     if (!snap) return;
     currentFen.value = snap.fen;
     lastMove.value = snap.lastMove;
+    if (clamped !== prevIndex) {
+      playChessSound("chpock");
+    }
   }
 
   function exitParticipantReplay(): void {

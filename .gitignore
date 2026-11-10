@@ -7,7 +7,6 @@ dist/
 .env.*
 .pnpm-debug.log
 *.tsbuildinfo
-apps/frontend/public/stockfish/
 
 
 

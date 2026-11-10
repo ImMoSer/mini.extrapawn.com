@@ -1,10 +1,14 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne, or } from "drizzle-orm";
 import {
   calculateAttemptPoints,
+  createDefaultWeeklySchedule,
+  MAX_OWNED_CLUBS_PER_USER,
+  normalizeWeeklySchedule,
   roundPoints,
   type AppLanguage,
   type ChallengeDifficulty,
   type ChallengeDiscipline,
+  type DayOfWeekKey,
   encodeChallengeStartParam,
   encodeClubLeaderboardStartParam,
   PRACTICAL_WARMUP_TILES,
@@ -254,6 +258,9 @@ export const telegramBotService = {
     override?: {
       discipline?: ChallengeDiscipline;
       difficulty?: ChallengeDifficulty;
+      focusGroup?: string;
+      focusKey?: string;
+      objective?: string;
       puzzleId?: string;
     }
   ) {
@@ -299,8 +306,14 @@ export const telegramBotService = {
     const focusKeys = club.filterFocusKeys?.length
       ? club.filterFocusKeys
       : ["all"];
+    const chosenFocusGroup =
+      override?.focusGroup || club.filterFocusGroup || "all";
     const chosenFocusKey =
-      focusKeys[Math.floor(Math.random() * focusKeys.length)] || "all";
+      override?.focusKey ||
+      focusKeys[Math.floor(Math.random() * focusKeys.length)] ||
+      "all";
+    const chosenObjective =
+      override?.objective || club.filterObjective || "all";
 
     // Get already published puzzle IDs in this club for this discipline
     const previousRows = await db
@@ -322,9 +335,9 @@ export const telegramBotService = {
       : await puzzleClientService.selectClubPuzzle({
           discipline: chosenDiscipline,
           difficulty: chosenDifficulty,
-          focusGroup: club.filterFocusGroup || "all",
+          focusGroup: chosenFocusGroup,
           focusKey: chosenFocusKey,
-          objective: club.filterObjective || "all",
+          objective: chosenObjective,
           excludeIds,
         });
 
@@ -758,6 +771,28 @@ export const telegramBotService = {
       return;
     }
 
+    // 3.5 Enforce max 2 clubs per non-superadmin user
+    if (!isSuperadminOwner) {
+      const ownedClubs = await db
+        .select({ chatId: clubs.chatId })
+        .from(clubs)
+        .where(
+          and(
+            eq(clubs.ownerTelegramId, fromId),
+            eq(clubs.isDefault, false),
+            ne(clubs.status, "bot_removed"),
+            ne(clubs.chatId, chatId)
+          )
+        );
+      if (ownedClubs.length >= MAX_OWNED_CLUBS_PER_USER) {
+        await this.leaveClubChat(
+          chatId,
+          `⚠️ Достигнут лимит: к одному аккаунту можно подключить не более ${MAX_OWNED_CLUBS_PER_USER} шахматных клубов в ExtraPawn. Отключите бота в одной из предыдущих групп, чтобы подключить новую.`
+        );
+        return;
+      }
+    }
+
     // 4. Create Forum Topic "ExtraPawnTeleBot" (or reuse existing / default thread)
     let topicThreadId =
       chatId === env.DEFAULT_CLUB_CHAT_ID
@@ -817,6 +852,10 @@ export const telegramBotService = {
         topicThreadId,
         memberCount,
         status: "active",
+        isActive: true,
+        autoPaused: false,
+        autoPauseChallengeId: null,
+        weeklySchedule: createDefaultWeeklySchedule(),
         isDefault: chatId === env.DEFAULT_CLUB_CHAT_ID,
       })
       .onConflictDoUpdate({
@@ -827,6 +866,7 @@ export const telegramBotService = {
           topicThreadId,
           memberCount,
           status: "active",
+          isActive: true,
           updatedAt: new Date(),
         },
       });
@@ -860,7 +900,112 @@ export const telegramBotService = {
       );
     }
   },
+
+  /**
+   * Returns the latest published challenge in `chatId` that nobody has solved or surrendered yet,
+   * or `null` if every published challenge has at least one completed (`solved` or `surrendered`) attempt.
+   */
+  async findLatestUnresolvedChallenge(chatId: string) {
+    const published = await db
+      .select()
+      .from(clubChallenges)
+      .where(eq(clubChallenges.chatId, chatId))
+      .orderBy(desc(clubChallenges.publishedAt));
+
+    if (published.length === 0) return null;
+
+    const completedAttempts = await db
+      .select({
+        discipline: challengeAttempts.discipline,
+        puzzleId: challengeAttempts.puzzleId,
+        edition: challengeAttempts.edition,
+      })
+      .from(challengeAttempts)
+      .where(
+        and(
+          eq(challengeAttempts.chatId, chatId),
+          or(
+            eq(challengeAttempts.status, "solved"),
+            eq(challengeAttempts.status, "surrendered")
+          )
+        )
+      );
+
+    const resolvedKeys = new Set(
+      completedAttempts.map((a) => `${a.discipline}:${a.puzzleId}:${a.edition}`)
+    );
+
+    const unresolved = published.find(
+      (c) => !resolvedKeys.has(`${c.discipline}:${c.puzzleId}:${c.edition}`)
+    );
+
+    return unresolved ?? null;
+  },
+
+  /**
+   * Clears `autoPaused` on the club once there are no unresolved challenges remaining.
+   */
+  async checkAndResumeAutoPause(chatId: string): Promise<void> {
+    const unresolved = await this.findLatestUnresolvedChallenge(chatId);
+    if (!unresolved) {
+      await db
+        .update(clubs)
+        .set({
+          autoPaused: false,
+          autoPauseChallengeId: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(clubs.chatId, chatId), eq(clubs.autoPaused, true)));
+    }
+  },
 };
+
+const WEEKDAY_MAP: Record<string, DayOfWeekKey> = {
+  mon: "mon",
+  tue: "tue",
+  wed: "wed",
+  thu: "thu",
+  fri: "fri",
+  sat: "sat",
+  sun: "sun",
+};
+
+function getClubZonedTime(
+  now: Date,
+  timezone: string
+): { day: DayOfWeekKey; hour: number; minute: number } {
+  const formatForZone = (tz: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = formatForZone(timezone || "Europe/Berlin");
+  } catch {
+    parts = formatForZone("Europe/Berlin");
+  }
+
+  const weekdayStr = (
+    parts.find((p) => p.type === "weekday")?.value ?? "mon"
+  ).toLowerCase();
+  const hourStr = parts.find((p) => p.type === "hour")?.value ?? "0";
+  const minuteStr = parts.find((p) => p.type === "minute")?.value ?? "0";
+
+  const day = WEEKDAY_MAP[weekdayStr.slice(0, 3)] ?? "mon";
+  const hour = Number.parseInt(hourStr, 10) % 24;
+  const minute = Number.parseInt(minuteStr, 10) % 60;
+
+  return {
+    day,
+    hour: Number.isNaN(hour) ? 0 : hour,
+    minute: Number.isNaN(minute) ? 0 : minute,
+  };
+}
 
 let pollingActive = false;
 let lastUpdateOffset = 0;
@@ -905,13 +1050,67 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
   }
 }
 
+async function notifyAutoPauseReplyOnce(
+  club: typeof clubs.$inferSelect,
+  unresolvedChallenge: typeof clubChallenges.$inferSelect
+): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN) return;
+
+  const isEn = club.language === "en";
+  const text = isEn
+    ? [
+        `⏸ <b>Auto-Paused</b>`,
+        `This challenge has not been solved (or surrendered) by anyone yet. Scheduled challenges are paused so we don't spam the chat.`,
+        `Solve or surrender the active challenge to automatically resume the schedule!`,
+      ].join("\n")
+    : [
+        `⏸ <b>Бот встал на авто-паузу</b>`,
+        `Этот челлендж пока никто не решил (и не сдался). Автоматическая публикация приостановлена, чтобы не спамить в чате.`,
+        `Как только кто-то затащит челлендж или сдастся — расписание продолжится автоматически!`,
+      ].join("\n");
+
+  const solveStartParam = encodeChallengeStartParam(
+    unresolvedChallenge.discipline as ChallengeDiscipline,
+    unresolvedChallenge.puzzleId,
+    unresolvedChallenge.edition,
+    club.chatId
+  );
+
+  const payload: Record<string, unknown> = {
+    chat_id: club.chatId,
+    parse_mode: "HTML",
+    text,
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: isEn ? "🔥 SOLVE ACTIVE" : "🔥 ЗАТАЩИТЬ ЧЕЛЛЕНДЖ",
+            url: `https://t.me/${env.BOT_USERNAME}?startapp=${solveStartParam}`,
+          },
+        ],
+      ],
+    },
+  };
+
+  if (club.topicThreadId > 0) {
+    payload.message_thread_id = club.topicThreadId;
+  }
+  if (unresolvedChallenge.tgMessageId) {
+    payload.reply_parameters = {
+      message_id: unresolvedChallenge.tgMessageId,
+    };
+  }
+
+  await callTelegramJson("sendMessage", payload);
+}
+
 async function runScheduledClubsTick(): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) return;
   try {
     const activeClubs = await db
       .select()
       .from(clubs)
-      .where(eq(clubs.status, "active"));
+      .where(and(eq(clubs.status, "active"), eq(clubs.isActive, true)));
 
     const now = new Date();
     for (const club of activeClubs) {
@@ -928,37 +1127,83 @@ async function runScheduledClubsTick(): Promise<void> {
         continue;
       }
 
-      if (!club.scheduleTimes?.length) continue;
-
-      // Format current HH:MM in the club's timezone
-      let hhmm = "";
-      try {
-        hhmm = new Intl.DateTimeFormat("en-GB", {
-          timeZone: club.timezone || "Europe/Berlin",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }).format(now);
-      } catch {
-        hhmm = new Intl.DateTimeFormat("en-GB", {
-          timeZone: "Europe/Berlin",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }).format(now);
+      const schedule = normalizeWeeklySchedule(club.weeklySchedule);
+      const zoned = getClubZonedTime(now, club.timezone);
+      const dayConfig = schedule[zoned.day];
+      if (!dayConfig.enabled || dayConfig.slots.length === 0) {
+        continue;
       }
 
-      if (!club.scheduleTimes.includes(hhmm)) continue;
+      const matchingSlot = dayConfig.slots.find((slot) => {
+        if (zoned.hour < slot.from_hour || zoned.hour >= slot.to_hour) {
+          return false;
+        }
+        const minutesSinceStart =
+          (zoned.hour - slot.from_hour) * 60 + zoned.minute;
+        return minutesSinceStart % slot.interval_minutes === 0;
+      });
+
+      if (!matchingSlot) continue;
 
       if (club.lastPublishedAt) {
-        const elapsedMs = now.getTime() - new Date(club.lastPublishedAt).getTime();
-        if (elapsedMs < 50 * 60 * 1000) {
+        const elapsedMs =
+          now.getTime() - new Date(club.lastPublishedAt).getTime();
+        const minCooldownMs =
+          Math.max(8, matchingSlot.interval_minutes - 2) * 60 * 1000;
+        if (elapsedMs < minCooldownMs) {
           continue;
         }
       }
 
+      // Smart Auto-Pause: check if there is an unresolved active challenge in this club
+      const unresolved = await telegramBotService.findLatestUnresolvedChallenge(
+        club.chatId
+      );
+      if (unresolved) {
+        if (
+          !club.autoPaused &&
+          club.autoPauseChallengeId !== unresolved.id
+        ) {
+          await db
+            .update(clubs)
+            .set({
+              autoPaused: true,
+              autoPauseChallengeId: unresolved.id,
+              updatedAt: new Date(),
+            })
+            .where(eq(clubs.chatId, club.chatId));
+
+          try {
+            await notifyAutoPauseReplyOnce(club, unresolved);
+          } catch (err) {
+            console.error(
+              `[TelegramBot] Auto-pause notification failed for club ${club.chatId}:`,
+              err
+            );
+          }
+        }
+        continue;
+      }
+
+      if (club.autoPaused) {
+        await db
+          .update(clubs)
+          .set({
+            autoPaused: false,
+            autoPauseChallengeId: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(clubs.chatId, club.chatId));
+      }
+
       try {
-        await telegramBotService.publishChallengeToClub(club.chatId);
+        await telegramBotService.publishChallengeToClub(club.chatId, {
+          discipline: matchingSlot.discipline,
+          difficulty: matchingSlot.difficulty,
+          focusGroup: matchingSlot.focus_group,
+          focusKey: matchingSlot.focus_key,
+          objective: matchingSlot.objective,
+        });
       } catch (err) {
         console.error(
           `[TelegramBot] Scheduled publish failed for club ${club.chatId}:`,

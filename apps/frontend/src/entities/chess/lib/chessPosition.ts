@@ -24,8 +24,13 @@ export interface AppliedMoveResult {
   from: Key;
   to: Key;
   isCapture: boolean;
+  isCastle: boolean;
+  isPromotion: boolean;
   isCheck: boolean;
   isCheckmate: boolean;
+  isStalemate: boolean;
+  isInsufficientMaterial: boolean;
+  isFiftyMoves: boolean;
   isDraw: boolean;
 }
 
@@ -105,15 +110,17 @@ export function applyMoveToFen(
     parsed.from % 8 !== parsed.to % 8 &&
     !targetPiece;
   const isCapture = Boolean(targetPiece) || isEnPassant;
+  const isCastle = san.startsWith("O-O");
+  const isPromotion = Boolean(parsed.promotion);
 
   pos.play(parsed);
   const nextFen = makeFen(pos.toSetup());
   const isCheck = pos.isCheck();
   const isCheckmate = pos.isCheckmate();
-  const isDraw =
-    pos.isStalemate() ||
-    pos.isInsufficientMaterial() ||
-    pos.halfmoves >= 100;
+  const isStalemate = pos.isStalemate();
+  const isInsufficientMaterial = pos.isInsufficientMaterial();
+  const isFiftyMoves = pos.halfmoves >= 100;
+  const isDraw = isStalemate || isInsufficientMaterial || isFiftyMoves;
 
   return {
     nextFen,
@@ -122,8 +129,13 @@ export function applyMoveToFen(
     from: makeSquare(parsed.from),
     to: makeSquare(parsed.to),
     isCapture,
+    isCastle,
+    isPromotion,
     isCheck,
     isCheckmate,
+    isStalemate,
+    isInsufficientMaterial,
+    isFiftyMoves,
     isDraw,
   };
 }

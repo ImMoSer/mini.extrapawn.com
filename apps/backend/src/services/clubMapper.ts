@@ -1,10 +1,11 @@
 import { count, eq } from "drizzle-orm";
-import type {
-  AppLanguage,
-  ChallengeDifficulty,
-  ChallengeDiscipline,
-  ClubStatus,
-  ClubSummaryDTO,
+import {
+  normalizeWeeklySchedule,
+  type AppLanguage,
+  type ChallengeDifficulty,
+  type ChallengeDiscipline,
+  type ClubStatus,
+  type ClubSummaryDTO,
 } from "shared";
 import { db } from "../db/index.js";
 import { clubAdmins, clubChallenges, clubs } from "../db/schema.js";
@@ -30,6 +31,9 @@ export async function mapClubRowToSummaryDTO(
     .from(clubChallenges)
     .where(eq(clubChallenges.chatId, row.chatId));
 
+  const status = (row.status || "active") as ClubStatus;
+  const isActive = Boolean(row.isActive) && status === "active";
+
   return {
     chat_id: row.chatId,
     title: row.title,
@@ -40,10 +44,13 @@ export async function mapClubRowToSummaryDTO(
     member_count: row.memberCount,
     language: (row.language || "ru") as AppLanguage,
     timezone: row.timezone,
-    status: (row.status || "active") as ClubStatus,
+    status,
+    is_active: isActive,
+    auto_paused: Boolean(row.autoPaused),
     blocked_reason: row.blockedReason,
     is_default: row.isDefault,
     is_admin: isAdmin,
+    weekly_schedule: normalizeWeeklySchedule(row.weeklySchedule),
     schedule_times: row.scheduleTimes || ["09:00", "15:00", "20:00"],
     leaderboard_cron_days: row.leaderboardCronDays,
     filter_disciplines: (row.filterDisciplines || [

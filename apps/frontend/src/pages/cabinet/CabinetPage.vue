@@ -5,6 +5,7 @@ import {
   ALL_CHALLENGE_DISCIPLINES,
   DEFAULT_CLUB_INVITE_URL,
   type ChallengeDiscipline,
+  type ClubSummaryDTO,
 } from "shared";
 import { useCabinetStore } from "@/entities/cabinet/model/cabinet.store";
 import { useI18n } from "@/shared/i18n/useI18n";
@@ -14,12 +15,20 @@ const router = useRouter();
 const cabinetStore = useCabinetStore();
 const { t, disciplineTitle } = useI18n();
 
+const activeTab = ref<"stats" | "my_clubs">("stats");
 const termsAccepted = ref(false);
+const togglingChatId = ref<string | null>(null);
 
 const addBotDeepLink = computed(() => {
   const botUsername = cabinetStore.data?.bot_username || "ExtraPawnTeleBot";
   return `https://t.me/${botUsername}?startgroup=true&admin=manage_topics+post_messages+pin_messages`;
 });
+
+const isClubLimitReached = computed(
+  () =>
+    !cabinetStore.isSuperadmin &&
+    cabinetStore.ownedClubsCount >= cabinetStore.maxOwnedClubs
+);
 
 function getStatsForDiscipline(d: ChallengeDiscipline) {
   return (
@@ -35,8 +44,18 @@ function getStatsForDiscipline(d: ChallengeDiscipline) {
 }
 
 function handleAddBotToGroup() {
-  if (!termsAccepted.value) return;
+  if (!termsAccepted.value || isClubLimitReached.value) return;
   openTelegramUrl(addBotDeepLink.value);
+}
+
+async function handleToggleClub(club: ClubSummaryDTO) {
+  if (togglingChatId.value) return;
+  togglingChatId.value = club.chat_id;
+  try {
+    await cabinetStore.toggleClubActive(club.chat_id, !club.is_active);
+  } finally {
+    togglingChatId.value = null;
+  }
 }
 
 onMounted(() => {
@@ -67,7 +86,7 @@ onMounted(() => {
               v-if="cabinetStore.isSuperadmin"
               class="rounded bg-accent/20 px-2 py-0.5 text-[10px] font-bold tracking-wider text-accent uppercase"
             >
-              SUPERADMIN
+              BOSS
             </span>
           </div>
           <p class="text-xs text-text-secondary">
@@ -89,8 +108,44 @@ onMounted(() => {
       </button>
     </section>
 
-    <!-- 4 Discipline Stats Cards (Attempts, Solved, Failed across all difficulties) -->
-    <section class="flex flex-col gap-2">
+    <!-- Internal Switcher: 📊 Статистика | ⚙️ Мои клубы -->
+    <div class="grid grid-cols-2 gap-2 rounded-xl border border-border bg-surface p-1.5">
+      <button
+        type="button"
+        class="rounded-lg py-2 text-xs font-bold transition"
+        :class="
+          activeTab === 'stats'
+            ? 'bg-brand text-on-brand'
+            : 'text-text-secondary hover:text-text-primary'
+        "
+        @click="activeTab = 'stats'"
+      >
+        {{ t("cabinet_tab_stats") }}
+      </button>
+
+      <button
+        type="button"
+        class="rounded-lg py-2 text-xs font-bold transition"
+        :class="
+          activeTab === 'my_clubs'
+            ? 'bg-brand text-on-brand'
+            : 'text-text-secondary hover:text-text-primary'
+        "
+        @click="activeTab = 'my_clubs'"
+      >
+        {{ t("cabinet_tab_my_clubs") }}
+        <span class="ml-1 font-condensed opacity-90">
+          ({{
+            cabinetStore.isSuperadmin
+              ? cabinetStore.myClubs.length
+              : `${cabinetStore.ownedClubsCount}/${cabinetStore.maxOwnedClubs}`
+          }})
+        </span>
+      </button>
+    </div>
+
+    <!-- TAB 1: 4 Discipline Stats Cards -->
+    <section v-if="activeTab === 'stats'" class="flex flex-col gap-2">
       <h2 class="px-1 text-xs font-bold tracking-wider text-text-secondary uppercase">
         {{ t("cabinet_my_stats") }}
       </h2>
@@ -144,46 +199,95 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- Connected Chess Clubs -->
-    <section class="flex flex-col gap-2">
-      <h2 class="px-1 text-xs font-bold tracking-wider text-text-secondary uppercase">
-        {{ t("cabinet_clubs_title") }}
-      </h2>
+    <!-- TAB 2: My Clubs & Bot Onboarding -->
+    <template v-else>
+      <section class="flex flex-col gap-2.5">
+        <div class="flex items-center justify-between px-1">
+          <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
+            {{ t("cabinet_tab_my_clubs") }}
+          </h2>
+          <span
+            v-if="!cabinetStore.isSuperadmin"
+            class="font-condensed text-xs font-bold text-text-secondary"
+          >
+            {{ cabinetStore.ownedClubsCount }} / {{ cabinetStore.maxOwnedClubs }}
+          </span>
+        </div>
 
-      <div class="flex flex-col gap-2">
         <div
-          v-for="club in cabinetStore.clubs"
-          :key="club.chat_id"
-          class="glass flex flex-wrap items-center justify-between gap-3 p-3.5"
+          v-if="!cabinetStore.myClubs.length"
+          class="glass p-5 text-center text-xs text-text-secondary"
         >
-          <div class="flex flex-col gap-0.5">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-bold text-text-primary">
-                {{ club.title }}
-              </span>
-              <span
-                v-if="club.is_default"
-                class="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-bold text-brand uppercase"
-              >
-                DEFAULT
-              </span>
-              <span
-                v-if="club.status === 'blocked'"
-                class="rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-bold text-danger uppercase"
-              >
-                BLOCKED
+          {{ t("cabinet_my_clubs_empty") }}
+        </div>
+
+        <div
+          v-for="club in cabinetStore.myClubs"
+          :key="club.chat_id"
+          class="glass flex flex-col gap-3 p-3.5"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="flex flex-col gap-0.5">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-sm font-bold text-text-primary">
+                  {{ club.title }}
+                </span>
+                <span
+                  v-if="club.is_default"
+                  class="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-bold text-brand uppercase"
+                >
+                  DEFAULT
+                </span>
+                <span
+                  v-if="club.status === 'blocked'"
+                  class="rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-bold text-danger uppercase"
+                >
+                  BLOCKED
+                </span>
+                <span
+                  v-else-if="club.auto_paused && club.is_active"
+                  class="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-bold text-warning uppercase"
+                >
+                  AUTO-PAUSE
+                </span>
+              </div>
+              <span class="text-xs text-text-secondary">
+                Topic #{{ club.topic_thread_id }} •
+                {{ club.published_challenges_count }} challenges
               </span>
             </div>
-            <span class="text-xs text-text-secondary">
-              Topic #{{ club.topic_thread_id }} •
-              {{ club.published_challenges_count }} challenges
-            </span>
+
+            <!-- Quick Active Toggle -->
+            <button
+              v-if="club.status !== 'blocked'"
+              type="button"
+              :disabled="togglingChatId === club.chat_id"
+              class="flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-bold transition"
+              :class="
+                club.is_active
+                  ? 'border-brand/50 bg-brand/15 text-brand'
+                  : 'border-border bg-elevated text-text-secondary'
+              "
+              @click="handleToggleClub(club)"
+            >
+              <span
+                class="h-2.5 w-2.5 rounded-full transition"
+                :class="club.is_active ? 'bg-brand' : 'bg-text-disabled'"
+              ></span>
+              <span>
+                {{
+                  club.is_active
+                    ? t("settings_bot_active")
+                    : t("settings_bot_paused")
+                }}
+              </span>
+            </button>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2 border-t border-border pt-2.5">
             <button
               type="button"
-              class="rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-bold text-text-primary transition hover:border-brand hover:text-brand"
+              class="flex-1 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-bold text-text-primary transition hover:border-brand hover:text-brand"
               @click="
                 cabinetStore.selectedChatId = club.chat_id;
                 router.push(
@@ -195,9 +299,8 @@ onMounted(() => {
             </button>
 
             <button
-              v-if="club.is_admin"
               type="button"
-              class="rounded-md bg-brand px-3 py-1.5 text-xs font-bold text-on-brand transition hover:bg-brand-deep"
+              class="flex-1 rounded-md bg-brand px-3 py-1.5 text-xs font-bold text-on-brand transition hover:bg-brand-deep"
               @click="
                 cabinetStore.selectedChatId = club.chat_id;
                 router.push(
@@ -209,45 +312,54 @@ onMounted(() => {
             </button>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- 1-Click Add Bot to Supergroup Onboarding -->
-    <section class="glass flex flex-col gap-3 p-4">
-      <div class="flex flex-col gap-1">
-        <h2 class="text-xs font-bold tracking-wider text-brand uppercase">
-          {{ t("cabinet_add_bot_title") }}
-        </h2>
-        <p class="text-xs leading-relaxed text-text-secondary">
-          {{ t("cabinet_add_bot_desc") }}
-        </p>
-      </div>
+      <!-- 1-Click Add Bot to Supergroup Onboarding -->
+      <section class="glass flex flex-col gap-3 p-4">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-xs font-bold tracking-wider text-brand uppercase">
+            {{ t("cabinet_add_bot_title") }}
+          </h2>
+          <p class="text-xs leading-relaxed text-text-secondary">
+            {{ t("cabinet_add_bot_desc") }}
+          </p>
+        </div>
 
-      <label
-        class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-elevated p-3 text-xs text-text-secondary"
-      >
-        <input
-          v-model="termsAccepted"
-          type="checkbox"
-          class="mt-0.5 h-4 w-4 accent-brand"
-        />
-        <span>{{ t("cabinet_terms_checkbox") }}</span>
-      </label>
+        <div
+          v-if="isClubLimitReached"
+          class="rounded-lg border border-warning/40 bg-warning/15 p-3 text-xs font-semibold text-warning"
+        >
+          ⚠️ {{ t("cabinet_limit_reached") }}
+        </div>
 
-      <button
-        type="button"
-        :disabled="!termsAccepted"
-        class="w-full rounded-lg py-2.5 text-sm font-bold transition"
-        :class="
-          termsAccepted
-            ? 'bg-brand text-on-brand hover:bg-brand-deep cursor-pointer'
-            : 'bg-elevated text-text-disabled cursor-not-allowed border border-border'
-        "
-        @click="handleAddBotToGroup"
-      >
-        {{ t("cabinet_add_bot_btn") }}
-      </button>
-    </section>
+        <template v-else>
+          <label
+            class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-elevated p-3 text-xs text-text-secondary"
+          >
+            <input
+              v-model="termsAccepted"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 accent-brand"
+            />
+            <span>{{ t("cabinet_terms_checkbox") }}</span>
+          </label>
+
+          <button
+            type="button"
+            :disabled="!termsAccepted"
+            class="w-full rounded-lg py-2.5 text-sm font-bold transition"
+            :class="
+              termsAccepted
+                ? 'bg-brand text-on-brand hover:bg-brand-deep cursor-pointer'
+                : 'bg-elevated text-text-disabled cursor-not-allowed border border-border'
+            "
+            @click="handleAddBotToGroup"
+          >
+            {{ t("cabinet_add_bot_btn") }}
+          </button>
+        </template>
+      </section>
+    </template>
   </div>
 </template>
 

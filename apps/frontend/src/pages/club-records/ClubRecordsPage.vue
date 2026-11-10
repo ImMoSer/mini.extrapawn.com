@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   DEFAULT_CLUB_CHAT_ID,
+  type ClubChallengeItemDTO,
   type ClubRecordsResponseDTO,
 } from "shared";
 import { apiRequest } from "@/shared/api/httpClient";
@@ -14,9 +15,22 @@ const { t, disciplineTitle, difficultyTitle } = useI18n();
 
 const data = ref<ClubRecordsResponseDTO | null>(null);
 const isLoading = ref(false);
+const challengesTab = ref<"active" | "completed">("active");
 
 const chatId = computed(() =>
   route.params.chatId ? String(route.params.chatId) : DEFAULT_CLUB_CHAT_ID
+);
+
+const activeChallenges = computed<ClubChallengeItemDTO[]>(() =>
+  (data.value?.recent_challenges ?? []).filter(
+    (item) => item.my_status !== "solved" && item.my_status !== "surrendered"
+  )
+);
+
+const completedChallenges = computed<ClubChallengeItemDTO[]>(() =>
+  (data.value?.recent_challenges ?? []).filter(
+    (item) => item.my_status === "solved" || item.my_status === "surrendered"
+  )
 );
 
 const maxTotalPoints = computed(() => {
@@ -29,12 +43,42 @@ const maxTotalSeconds = computed(() => {
   return Math.max(1, ...data.value.records.map((r) => r.total_seconds));
 });
 
+function formatBestSeconds(ms: number | null): string {
+  if (ms === null || ms === undefined) return "";
+  return (Math.round((ms / 1000) * 10) / 10).toFixed(1);
+}
+
+function formatPoints(pts: number): string {
+  if (Number.isInteger(pts)) return String(pts);
+  return pts.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function openChallenge(item: ClubChallengeItemDTO) {
+  if (!data.value) return;
+  void router.push(
+    `/challenge/${item.discipline}/${encodeURIComponent(
+      item.puzzle_id
+    )}/${encodeURIComponent(item.edition)}/${encodeURIComponent(
+      data.value.club.chat_id
+    )}`
+  );
+}
+
 async function fetchClubRecords() {
   isLoading.value = true;
   try {
-    data.value = await apiRequest<ClubRecordsResponseDTO>(
+    const res = await apiRequest<ClubRecordsResponseDTO>(
       `/challenges/records/${encodeURIComponent(chatId.value)}`
     );
+    data.value = res;
+    if (
+      activeChallenges.value.length === 0 &&
+      completedChallenges.value.length > 0
+    ) {
+      challengesTab.value = "completed";
+    } else {
+      challengesTab.value = "active";
+    }
   } finally {
     isLoading.value = false;
   }
@@ -57,12 +101,24 @@ onMounted(() => {
       class="glass flex flex-wrap items-center justify-between gap-3 p-4"
     >
       <div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <span class="text-xs font-bold tracking-wider text-brand uppercase">
             {{ t("records_club_title") }}
           </span>
           <span class="rounded bg-elevated px-2 py-0.5 text-[11px] text-text-secondary">
             Topic #{{ data.club.topic_thread_id }}
+          </span>
+          <span
+            v-if="data.club.auto_paused && data.club.is_active"
+            class="rounded bg-warning/20 px-2 py-0.5 text-[10px] font-bold text-warning uppercase"
+          >
+            ⏸ AUTO-PAUSE
+          </span>
+          <span
+            v-else-if="!data.club.is_active"
+            class="rounded bg-elevated px-2 py-0.5 text-[10px] font-bold text-text-disabled uppercase"
+          >
+            PAUSED
           </span>
         </div>
         <h1 class="mt-0.5 text-lg font-bold text-text-primary">
@@ -90,6 +146,164 @@ onMounted(() => {
           ⚙️ {{ t("cabinet_open_settings") }}
         </button>
       </div>
+    </section>
+
+    <!-- Club Challenges Section (2 Tabs: 🔥 Активные / ✅ Пройденные) -->
+    <section
+      v-if="data && data.recent_challenges.length > 0"
+      class="glass flex flex-col gap-3 p-3.5"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
+          {{ t("records_recent_challenges") }}
+        </h2>
+
+        <div class="grid grid-cols-2 gap-1 rounded-lg border border-border bg-elevated p-1">
+          <button
+            type="button"
+            class="rounded-md px-3 py-1 text-xs font-bold transition"
+            :class="
+              challengesTab === 'active'
+                ? 'bg-brand text-on-brand'
+                : 'text-text-secondary hover:text-text-primary'
+            "
+            @click="challengesTab = 'active'"
+          >
+            {{ t("records_tab_active") }} ({{ activeChallenges.length }})
+          </button>
+
+          <button
+            type="button"
+            class="rounded-md px-3 py-1 text-xs font-bold transition"
+            :class="
+              challengesTab === 'completed'
+                ? 'bg-accent text-on-brand'
+                : 'text-text-secondary hover:text-text-primary'
+            "
+            @click="challengesTab = 'completed'"
+          >
+            {{ t("records_tab_completed") }} ({{ completedChallenges.length }})
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB: Active Challenges -->
+      <template v-if="challengesTab === 'active'">
+        <div
+          v-if="!activeChallenges.length"
+          class="rounded-lg border border-border bg-elevated/60 py-5 text-center text-xs text-text-secondary"
+        >
+          {{ t("records_no_active") }}
+        </div>
+
+        <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            v-for="item in activeChallenges"
+            :key="`${item.discipline}-${item.puzzle_id}-${item.edition}`"
+            type="button"
+            class="flex flex-col justify-between gap-2 rounded-lg border border-border bg-elevated p-3 text-left text-xs transition hover:border-brand"
+            @click="openChallenge(item)"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="font-bold text-text-primary">
+                  {{ disciplineTitle(item.discipline) }}
+                </div>
+                <div class="mt-0.5 text-[11px] text-text-secondary">
+                  <span class="font-semibold text-text-primary/90">
+                    {{ item.category || "MIX" }}
+                  </span>
+                  <span> • {{ difficultyTitle(item.difficulty) }}</span>
+                </div>
+              </div>
+              <span class="shrink-0 font-bold text-brand">ЗАТАЩИТЬ →</span>
+            </div>
+
+            <div
+              v-if="item.solved_count > 0"
+              class="flex items-center gap-1.5 border-t border-border/60 pt-1.5 text-[11px] text-text-secondary"
+            >
+              <span>
+                👥 {{ t("records_social_solved") }}:
+                <strong class="text-text-primary">{{ item.solved_count }}</strong>
+              </span>
+              <span v-if="item.best_time_ms !== null">
+                • {{ t("records_social_best") }}:
+                <strong class="font-condensed text-brand">
+                  {{ formatBestSeconds(item.best_time_ms) }}s
+                </strong>
+              </span>
+            </div>
+          </button>
+        </div>
+      </template>
+
+      <!-- TAB: Completed Challenges -->
+      <template v-else>
+        <div
+          v-if="!completedChallenges.length"
+          class="rounded-lg border border-border bg-elevated/60 py-5 text-center text-xs text-text-secondary"
+        >
+          {{ t("records_no_completed") }}
+        </div>
+
+        <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            v-for="item in completedChallenges"
+            :key="`${item.discipline}-${item.puzzle_id}-${item.edition}`"
+            type="button"
+            class="flex flex-col justify-between gap-2 rounded-lg border bg-elevated p-3 text-left text-xs transition"
+            :class="
+              item.my_status === 'solved'
+                ? 'border-accent/35 hover:border-accent'
+                : 'border-danger/35 hover:border-danger'
+            "
+            @click="openChallenge(item)"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="font-bold text-text-primary">
+                  {{ disciplineTitle(item.discipline) }}
+                </div>
+                <div class="mt-0.5 text-[11px] text-text-secondary">
+                  <span class="font-semibold text-text-primary/90">
+                    {{ item.category || "MIX" }}
+                  </span>
+                  <span> • {{ difficultyTitle(item.difficulty) }}</span>
+                </div>
+              </div>
+
+              <!-- Violet badge for Solved / Reddish badge for Surrendered -->
+              <span
+                v-if="item.my_status === 'solved'"
+                class="shrink-0 rounded-md border border-accent/40 bg-accent/15 px-2 py-0.5 font-condensed text-[11px] font-bold text-accent"
+              >
+                {{ t("records_badge_solved") }} (+{{ formatPoints(item.my_points) }} PTS)
+              </span>
+              <span
+                v-else
+                class="shrink-0 rounded-md border border-danger/40 bg-danger/15 px-2 py-0.5 font-condensed text-[11px] font-bold text-danger"
+              >
+                {{ t("records_badge_surrendered") }} (0 PTS)
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between border-t border-border/60 pt-1.5 text-[11px] text-text-secondary">
+              <span>
+                👥 {{ t("records_social_solved") }}:
+                <strong class="text-text-primary">{{ item.solved_count }}</strong>
+                <template v-if="item.best_time_ms !== null">
+                  • {{ t("records_social_best") }}:
+                  <strong class="font-condensed text-brand">
+                    {{ formatBestSeconds(item.best_time_ms) }}s
+                  </strong>
+                </template>
+              </span>
+              <span class="font-semibold text-text-primary">Анализ →</span>
+            </div>
+          </button>
+        </div>
+      </template>
     </section>
 
     <!-- Discipline Legend -->
@@ -196,44 +410,6 @@ onMounted(() => {
             }"
           ></div>
         </div>
-      </div>
-    </section>
-
-    <!-- Recent Club Challenges -->
-    <section
-      v-if="data?.recent_challenges.length"
-      class="glass flex flex-col gap-2 p-3.5"
-    >
-      <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-        {{ t("records_recent_challenges") }}
-      </h2>
-
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <button
-          v-for="item in data.recent_challenges"
-          :key="`${item.discipline}-${item.puzzle_id}-${item.edition}`"
-          type="button"
-          class="flex items-center justify-between rounded-lg border border-border bg-elevated p-2.5 text-left text-xs transition hover:border-brand"
-          @click="
-            router.push(
-              `/challenge/${item.discipline}/${encodeURIComponent(
-                item.puzzle_id
-              )}/${encodeURIComponent(item.edition)}/${encodeURIComponent(
-                data.club.chat_id
-              )}`
-            )
-          "
-        >
-          <div>
-            <div class="font-bold text-text-primary">
-              {{ disciplineTitle(item.discipline) }}
-            </div>
-            <div class="text-[11px] text-text-secondary">
-              #{{ item.puzzle_id }} • {{ difficultyTitle(item.difficulty) }}
-            </div>
-          </div>
-          <span class="font-bold text-brand">ЗАТАЩИТЬ →</span>
-        </button>
       </div>
     </section>
   </div>

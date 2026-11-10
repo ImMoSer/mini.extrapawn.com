@@ -2,7 +2,9 @@ import { ref } from "vue";
 
 export interface WasmAnalysisState {
   isReady: boolean;
+  isLoading: boolean;
   isAnalyzing: boolean;
+  error: string | null;
   depth: number;
   evalLabel: string;
   evalWhitePercent: number;
@@ -13,7 +15,9 @@ export interface WasmAnalysisState {
 export function useStockfishWasm() {
   const state = ref<WasmAnalysisState>({
     isReady: false,
+    isLoading: false,
     isAnalyzing: false,
+    error: null,
     depth: 0,
     evalLabel: "0.0",
     evalWhitePercent: 50,
@@ -23,16 +27,53 @@ export function useStockfishWasm() {
 
   let worker: Worker | null = null;
   let currentSideToMove: "w" | "b" = "w";
+  let pendingRequest: { fen: string; depth: number } | null = null;
+
+  function dispatchAnalysisToWorker(w: Worker, fen: string, depth: number): void {
+    const parts = fen.trim().split(/\s+/);
+    currentSideToMove = parts[1] === "b" ? "b" : "w";
+
+    state.value.isAnalyzing = true;
+    state.value.depth = 0;
+    state.value.bestMoveUci = null;
+    state.value.pvLine = [];
+
+    w.postMessage("stop");
+    w.postMessage(`position fen ${fen}`);
+    w.postMessage(`go depth ${depth}`);
+  }
 
   function ensureWorker(): Worker {
     if (worker) return worker;
-    worker = new Worker("/stockfish/stockfish-19-single.js");
-    worker.onmessage = (event: MessageEvent<string>) => {
-      const line = String(event.data || "").trim();
+
+    state.value.isLoading = true;
+    state.value.error = null;
+    worker = new Worker("/stockfish/stockfish-19-lite-single.js");
+
+    worker.onerror = (err: ErrorEvent) => {
+      state.value.isLoading = false;
+      state.value.isAnalyzing = false;
+      state.value.error = err.message || "Stockfish WASM load error";
+    };
+
+    worker.onmessage = (event: MessageEvent<unknown>) => {
+      const line =
+        typeof event.data === "string" ? event.data.trim() : "";
       if (!line) return;
 
-      if (line === "uciok" || line === "readyok") {
+      if (line === "uciok") {
+        worker?.postMessage("isready");
+        return;
+      }
+
+      if (line === "readyok") {
         state.value.isReady = true;
+        state.value.isLoading = false;
+        if (pendingRequest && worker) {
+          const req = pendingRequest;
+          pendingRequest = null;
+          dispatchAnalysisToWorker(worker, req.fen, req.depth);
+        }
         return;
       }
 
@@ -83,35 +124,35 @@ export function useStockfishWasm() {
     };
 
     worker.postMessage("uci");
-    worker.postMessage("isready");
     return worker;
   }
 
   function analyzeFen(fen: string, depth: number = 15): void {
     const w = ensureWorker();
-    const parts = fen.trim().split(/\s+/);
-    currentSideToMove = parts[1] === "b" ? "b" : "w";
-
-    state.value.isAnalyzing = true;
-    state.value.bestMoveUci = null;
-    state.value.pvLine = [];
-
-    w.postMessage("stop");
-    w.postMessage(`position fen ${fen}`);
-    w.postMessage(`go depth ${depth}`);
+    if (!state.value.isReady) {
+      pendingRequest = { fen, depth };
+      state.value.isAnalyzing = true;
+      return;
+    }
+    dispatchAnalysisToWorker(w, fen, depth);
   }
 
   function stopAnalysis(): void {
+    pendingRequest = null;
     if (!worker) return;
     worker.postMessage("stop");
     state.value.isAnalyzing = false;
   }
 
   function destroyWorker(): void {
+    pendingRequest = null;
     if (!worker) return;
     worker.postMessage("quit");
     worker.terminate();
     worker = null;
+    state.value.isReady = false;
+    state.value.isLoading = false;
+    state.value.isAnalyzing = false;
   }
 
   return {

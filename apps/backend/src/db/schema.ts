@@ -3,6 +3,7 @@ import {
   boolean,
   customType,
   integer,
+  jsonb,
   pgSchema,
   primaryKey,
   serial,
@@ -10,6 +11,7 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
+import type { WeeklyScheduleConfig } from "shared";
 
 export const teleAppSchema = pgSchema("tele_app");
 
@@ -54,6 +56,10 @@ export const clubs = teleAppSchema.table("clubs", {
   language: text("language").notNull().default("ru"),
   timezone: text("timezone").notNull().default("Europe/Berlin"),
   status: text("status").notNull().default("active"),
+  isActive: boolean("is_active").notNull().default(true),
+  autoPaused: boolean("auto_paused").notNull().default(false),
+  autoPauseChallengeId: integer("auto_pause_challenge_id"),
+  weeklySchedule: jsonb("weekly_schedule").$type<WeeklyScheduleConfig>(),
   blockedReason: text("blocked_reason"),
   isDefault: boolean("is_default").notNull().default(false),
   termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true })

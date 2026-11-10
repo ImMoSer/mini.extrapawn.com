@@ -73,16 +73,19 @@ function handleReplayClick(participant: ChallengeParticipantDTO) {
   store.startParticipantReplay(participant);
 }
 
-watch(
-  () => store.currentFen,
-  (fen) => {
-    if (store.isWasmAnalysisEnabled && fen) {
-      wasm.analyzeFen(fen);
-    }
-  }
-);
+function goToNextActiveChallenge() {
+  const next = store.challenge?.next_active_challenge;
+  if (!next) return;
+  wasm.stopAnalysis();
+  void router.push(
+    `/challenge/${next.discipline}/${encodeURIComponent(
+      next.puzzle_id
+    )}/${encodeURIComponent(next.edition)}/${encodeURIComponent(next.chat_id)}`
+  );
+}
 
-onMounted(async () => {
+async function loadFromCurrentRoute() {
+  wasm.stopAnalysis();
   await store.loadChallenge({
     discipline: routeParams.value.discipline,
     puzzleId: routeParams.value.puzzleId,
@@ -98,6 +101,27 @@ onMounted(async () => {
       store.startParticipantReplay(target);
     }
   }
+}
+
+watch(
+  () => store.currentFen,
+  (fen) => {
+    if (store.isWasmAnalysisEnabled && fen) {
+      wasm.analyzeFen(fen);
+    }
+  }
+);
+
+watch(
+  () =>
+    `${routeParams.value.discipline}:${routeParams.value.puzzleId}:${routeParams.value.edition}:${routeParams.value.chatId}`,
+  () => {
+    void loadFromCurrentRoute();
+  }
+);
+
+onMounted(() => {
+  void loadFromCurrentRoute();
 });
 
 onUnmounted(() => {
@@ -179,7 +203,15 @@ onUnmounted(() => {
     >
       <div class="flex items-center justify-between text-xs">
         <span class="font-bold text-highlight">
-          Stockfish 19 WASM (d={{ wasm.state.value.depth }})
+          <template v-if="wasm.state.value.error">
+            ⚠️ {{ wasm.state.value.error }}
+          </template>
+          <template v-else-if="wasm.state.value.isLoading">
+            ⏳ Stockfish 19 Lite (загрузка...)
+          </template>
+          <template v-else>
+            Stockfish 19 Lite (d={{ wasm.state.value.depth }})
+          </template>
         </span>
         <span class="font-condensed text-sm font-bold text-text-primary">
           {{ wasm.state.value.evalLabel }}
@@ -284,6 +316,23 @@ onUnmounted(() => {
         </button>
       </div>
     </section>
+
+    <!-- Bonus: Next Active Challenge Button -->
+    <button
+      v-if="
+        store.challenge &&
+        store.isFinished &&
+        store.challenge.next_active_challenge
+      "
+      type="button"
+      class="w-full rounded-lg bg-brand py-2.5 text-xs font-bold text-on-brand shadow-sm transition hover:bg-brand-deep"
+      @click="goToNextActiveChallenge"
+    >
+      {{ t("challenge_next_active_btn") }} → ({{
+        t("challenge_remaining_label")
+      }}
+      {{ store.challenge.remaining_active_count }})
+    </button>
 
     <!-- Action Bar (Surrender / Local WASM Stockfish / Club Leaderboard) -->
     <section v-if="store.challenge" class="flex flex-wrap items-center gap-2">

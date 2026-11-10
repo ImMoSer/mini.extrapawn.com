@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { FastifyPluginAsync } from "fastify";
 import {
   calculateAttemptPoints,
@@ -9,8 +9,10 @@ import {
   type ChallengeDiscipline,
   type ChallengeParticipantDTO,
   type ChallengeStateDTO,
+  type ClubChallengeItemDTO,
   type ClubRecordEntryDTO,
   type ClubRecordsResponseDTO,
+  type NextActiveChallengeRefDTO,
   type PuzzleObjective,
   type PuzzleStrategyType,
   type SubmitChallengeAttemptRequest,
@@ -73,6 +75,78 @@ async function ensureClubExists(chatId: string) {
     throw new Error(`[ChallengesRoute] Failed to ensure club ${chatId}`);
   }
   return refetched;
+}
+
+async function computeViewerNextActive(params: {
+  chatId: string;
+  viewerTelegramId: string;
+  exclude?: {
+    discipline: string;
+    puzzleId: string;
+    edition: string;
+  };
+}): Promise<{
+  remainingActiveCount: number;
+  nextActiveChallenge: NextActiveChallengeRefDTO | null;
+}> {
+  const [published, myCompleted] = await Promise.all([
+    db
+      .select({
+        discipline: clubChallenges.discipline,
+        puzzleId: clubChallenges.puzzleId,
+        edition: clubChallenges.edition,
+      })
+      .from(clubChallenges)
+      .where(eq(clubChallenges.chatId, params.chatId))
+      .orderBy(desc(clubChallenges.publishedAt))
+      .limit(50),
+    db
+      .select({
+        discipline: challengeAttempts.discipline,
+        puzzleId: challengeAttempts.puzzleId,
+        edition: challengeAttempts.edition,
+      })
+      .from(challengeAttempts)
+      .where(
+        and(
+          eq(challengeAttempts.chatId, params.chatId),
+          eq(challengeAttempts.telegramId, params.viewerTelegramId),
+          or(
+            eq(challengeAttempts.status, "solved"),
+            eq(challengeAttempts.status, "surrendered")
+          )
+        )
+      ),
+  ]);
+
+  const completedSet = new Set(
+    myCompleted.map((a) => `${a.discipline}:${a.puzzleId}:${a.edition}`)
+  );
+
+  const active = published.filter((c) => {
+    if (
+      params.exclude &&
+      c.discipline === params.exclude.discipline &&
+      c.puzzleId === params.exclude.puzzleId &&
+      c.edition === params.exclude.edition
+    ) {
+      return false;
+    }
+    return !completedSet.has(`${c.discipline}:${c.puzzleId}:${c.edition}`);
+  });
+
+  const first = active[0];
+  return {
+    remainingActiveCount: active.length,
+    nextActiveChallenge: first
+      ? {
+          discipline: first.discipline as ChallengeDiscipline,
+          puzzle_id: first.puzzleId,
+          edition: first.edition,
+          chat_id: params.chatId,
+        }
+      : null,
+  };
 }
 
 async function buildChallengeStateDTO(params: {
@@ -249,6 +323,16 @@ async function buildChallengeStateDTO(params: {
   const myEntry =
     leaderboard.find((p) => p.telegram_id === params.viewerTelegramId) ?? null;
 
+  const nextActiveInfo = await computeViewerNextActive({
+    chatId: params.chatId,
+    viewerTelegramId: params.viewerTelegramId,
+    exclude: {
+      discipline: params.discipline,
+      puzzleId: params.puzzleId,
+      edition: params.edition,
+    },
+  });
+
   return {
     chat_id: params.chatId,
     club_title: club.title,
@@ -279,6 +363,8 @@ async function buildChallengeStateDTO(params: {
     endgame: normalized.endgame,
     my_entry: myEntry,
     leaderboard,
+    remaining_active_count: nextActiveInfo.remainingActiveCount,
+    next_active_challenge: nextActiveInfo.nextActiveChallenge,
   };
 }
 
@@ -407,18 +493,80 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         .from(clubChallenges)
         .where(eq(clubChallenges.chatId, chatId))
         .orderBy(desc(clubChallenges.publishedAt))
-        .limit(20);
+        .limit(50);
+
+      interface ChallengeStatsBucket {
+        solvedCount: number;
+        bestTimeMs: number | null;
+        myStatus: ChallengeAttemptStatus | null;
+        mySolved: boolean;
+        myPoints: number;
+        myAttempts: number;
+      }
+
+      const statsByChallengeKey = new Map<string, ChallengeStatsBucket>();
+      for (const r of rows) {
+        const att = r.attempt;
+        const key = `${att.discipline}:${att.puzzleId}:${att.edition}`;
+        let bucket = statsByChallengeKey.get(key);
+        if (!bucket) {
+          bucket = {
+            solvedCount: 0,
+            bestTimeMs: null,
+            myStatus: null,
+            mySolved: false,
+            myPoints: 0,
+            myAttempts: 0,
+          };
+          statsByChallengeKey.set(key, bucket);
+        }
+
+        if (att.solved) {
+          bucket.solvedCount += 1;
+          if (att.solvedTimeMs !== null && att.solvedTimeMs !== undefined) {
+            const ms = Number(att.solvedTimeMs);
+            if (bucket.bestTimeMs === null || ms < bucket.bestTimeMs) {
+              bucket.bestTimeMs = ms;
+            }
+          }
+        }
+
+        if (att.telegramId === req.user.telegramId) {
+          bucket.myStatus = (att.status || "in_progress") as ChallengeAttemptStatus;
+          bucket.mySolved = att.solved;
+          bucket.myPoints = roundPoints(
+            calculateAttemptPoints(att.solved, att.attempts)
+          );
+          bucket.myAttempts = att.attempts;
+        }
+      }
+
+      const challengeItems: ClubChallengeItemDTO[] = recentChallenges.map(
+        (c) => {
+          const key = `${c.discipline}:${c.puzzleId}:${c.edition}`;
+          const b = statsByChallengeKey.get(key);
+          return {
+            discipline: c.discipline as ChallengeDiscipline,
+            puzzle_id: c.puzzleId,
+            edition: c.edition,
+            difficulty: c.difficulty as ChallengeDifficulty,
+            category: c.category || c.domain || "MIX",
+            domain: c.domain || "",
+            published_at: c.publishedAt.toISOString(),
+            solved_count: b?.solvedCount ?? 0,
+            best_time_ms: b?.bestTimeMs ?? null,
+            my_status: b?.myStatus ?? null,
+            my_solved: b?.mySolved ?? false,
+            my_points: b?.myPoints ?? 0,
+            my_attempts: b?.myAttempts ?? 0,
+          };
+        }
+      );
 
       const response: ClubRecordsResponseDTO = {
         club: clubSummary,
         records,
-        recent_challenges: recentChallenges.map((c) => ({
-          discipline: c.discipline as ChallengeDiscipline,
-          puzzle_id: c.puzzleId,
-          edition: c.edition,
-          difficulty: c.difficulty as ChallengeDifficulty,
-          published_at: c.publishedAt.toISOString(),
-        })),
+        recent_challenges: challengeItems,
       };
 
       return response;
@@ -516,6 +664,10 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .where(eq(challengeAttempts.id, current.id));
 
+        if (solved) {
+          await telegramBotService.checkAndResumeAutoPause(chatId);
+        }
+
         if (shouldNotify) {
           void telegramBotService
             .notifyChallengeSolved({
@@ -601,6 +753,8 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .where(eq(challengeAttempts.id, current.id));
       }
+
+      await telegramBotService.checkAndResumeAutoPause(chatId);
 
       return buildChallengeStateDTO({
         chatId,

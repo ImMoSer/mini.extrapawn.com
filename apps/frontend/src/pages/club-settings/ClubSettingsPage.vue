@@ -4,125 +4,215 @@ import { useRoute, useRouter } from "vue-router";
 import {
   ALL_CHALLENGE_DIFFICULTIES,
   ALL_CHALLENGE_DISCIPLINES,
+  ALL_DAYS_OF_WEEK,
+  ALL_SCHEDULE_INTERVALS,
+  createDefaultWeeklySchedule,
   DEFAULT_CLUB_CHAT_ID,
-  PRACTICAL_WARMUP_TILES,
-  TACTICS_WARMUP_TILES,
-  THEORETICAL_WARMUP_TILES,
+  getWarmupTilesForDiscipline,
+  normalizeWeeklySchedule,
   type AppLanguage,
-  type ChallengeDifficulty,
   type ChallengeDiscipline,
+  type ClubScheduleSlot,
   type ClubSummaryDTO,
+  type DayOfWeekKey,
+  type ScheduleIntervalMinutes,
   type WarmupFocusTile,
+  type WeeklyScheduleConfig,
 } from "shared";
+import { useCabinetStore } from "@/entities/cabinet/model/cabinet.store";
 import { apiRequest } from "@/shared/api/httpClient";
-import { useI18n } from "@/shared/i18n/useI18n";
+import { useI18n, type TranslationKey } from "@/shared/i18n/useI18n";
 
 const route = useRoute();
 const router = useRouter();
+const cabinetStore = useCabinetStore();
 const { lang, t, disciplineTitle, difficultyTitle } = useI18n();
 
 const chatId = computed(() =>
   route.params.chatId ? String(route.params.chatId) : DEFAULT_CLUB_CHAT_ID
 );
 
+const FROM_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21] as const;
+const ALL_TO_HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] as const;
+
+function detectTodayKey(): DayOfWeekKey {
+  const jsDay = new Date().getDay(); // 0 = Sun, 1 = Mon .. 6 = Sat
+  const map: readonly DayOfWeekKey[] = [
+    "sun",
+    "mon",
+    "tue",
+    "wed",
+    "thu",
+    "fri",
+    "sat",
+  ];
+  return map[jsDay] ?? "mon";
+}
+
 const club = ref<ClubSummaryDTO | null>(null);
 const isLoading = ref(false);
 const isSaving = ref(false);
 const isPublishing = ref(false);
-const statusBanner = ref<string | null>(null);
+const isTogglingActive = ref(false);
+const statusBanner = ref<{ type: "success" | "error"; text: string } | null>(
+  null
+);
 
-// Editable settings state
-const selectedDisciplines = ref<ChallengeDiscipline[]>(["tactics"]);
-const activePreviewDiscipline = ref<ChallengeDiscipline>("tactics");
-const selectedDifficulties = ref<ChallengeDifficulty[]>(["Novice", "Pro"]);
-const selectedFocusGroup = ref<string>("all");
-const selectedFocusKeys = ref<string[]>(["all"]);
-const selectedObjective = ref<string>("all");
-const scheduleTimes = ref<string[]>(["09:00", "15:00", "20:00"]);
+const isClubActive = ref(true);
+const activeDay = ref<DayOfWeekKey>(detectTodayKey());
+const weeklySchedule = ref<WeeklyScheduleConfig>(createDefaultWeeklySchedule());
 const clubLanguage = ref<AppLanguage>("ru");
 const clubTimezone = ref<string>("Europe/Berlin");
 
-const AVAILABLE_HOURS = [
-  "08:00",
-  "09:00",
-  "11:00",
-  "13:00",
-  "15:00",
-  "17:00",
-  "19:00",
-  "20:00",
-  "21:00",
-  "22:00",
-];
+const currentDayConfig = computed(() => weeklySchedule.value[activeDay.value]);
 
-const focusTilesForActiveDiscipline = computed<readonly WarmupFocusTile[]>(() => {
-  if (activePreviewDiscipline.value === "tactics") {
-    return TACTICS_WARMUP_TILES;
-  }
-  if (activePreviewDiscipline.value === "theoretical_endgames") {
-    return THEORETICAL_WARMUP_TILES;
-  }
-  return PRACTICAL_WARMUP_TILES;
-});
+function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
 
-function toggleDiscipline(d: ChallengeDiscipline) {
-  activePreviewDiscipline.value = d;
-  const idx = selectedDisciplines.value.indexOf(d);
-  if (idx >= 0) {
-    if (selectedDisciplines.value.length > 1) {
-      selectedDisciplines.value.splice(idx, 1);
+function getToHoursForSlot(fromHour: number): number[] {
+  return ALL_TO_HOURS.filter((h) => h > fromHour);
+}
+
+function dayLabel(day: DayOfWeekKey): string {
+  return t(`day_${day}` as TranslationKey);
+}
+
+function hasOverlapInDay(day: DayOfWeekKey): boolean {
+  const slots = [...weeklySchedule.value[day].slots].sort(
+    (a, b) => a.from_hour - b.from_hour
+  );
+  for (let i = 1; i < slots.length; i += 1) {
+    const prev = slots[i - 1];
+    const cur = slots[i];
+    if (prev && cur && cur.from_hour < prev.to_hour) {
+      return true;
     }
-  } else {
-    selectedDisciplines.value.push(d);
+  }
+  return false;
+}
+
+const overlappingDays = computed<DayOfWeekKey[]>(() =>
+  ALL_DAYS_OF_WEEK.filter((d) => hasOverlapInDay(d))
+);
+
+function cloneSlots(slots: ClubScheduleSlot[], prefix: string): ClubScheduleSlot[] {
+  return slots.map((s, idx) => ({
+    ...s,
+    id: `${prefix}-${idx + 1}-${Date.now()}`,
+  }));
+}
+
+function copyCurrentDayTo(targetDays: readonly DayOfWeekKey[], notice: string) {
+  const src = weeklySchedule.value[activeDay.value];
+  for (const d of targetDays) {
+    if (d === activeDay.value) continue;
+    weeklySchedule.value[d] = {
+      enabled: src.enabled,
+      slots: cloneSlots(src.slots, d),
+    };
+  }
+  statusBanner.value = { type: "success", text: notice };
+}
+
+function handleFromHourChange(slot: ClubScheduleSlot, rawValue: string) {
+  const nextFrom = Number.parseInt(rawValue, 10);
+  if (Number.isNaN(nextFrom)) return;
+  slot.from_hour = Math.min(21, Math.max(8, nextFrom));
+  if (slot.to_hour <= slot.from_hour) {
+    slot.to_hour = Math.min(22, slot.from_hour + 1);
   }
 }
 
-function toggleDifficulty(diff: ChallengeDifficulty) {
-  const idx = selectedDifficulties.value.indexOf(diff);
-  if (idx >= 0) {
-    if (selectedDifficulties.value.length > 1) {
-      selectedDifficulties.value.splice(idx, 1);
-    }
-  } else {
-    selectedDifficulties.value.push(diff);
+function handleToHourChange(slot: ClubScheduleSlot, rawValue: string) {
+  const nextTo = Number.parseInt(rawValue, 10);
+  if (Number.isNaN(nextTo)) return;
+  slot.to_hour = Math.min(22, Math.max(slot.from_hour + 1, nextTo));
+}
+
+function handleIntervalChange(slot: ClubScheduleSlot, rawValue: string) {
+  const parsed = Number.parseInt(rawValue, 10) as ScheduleIntervalMinutes;
+  if ((ALL_SCHEDULE_INTERVALS as readonly number[]).includes(parsed)) {
+    slot.interval_minutes = parsed;
   }
 }
 
-function selectFocusTile(tile: WarmupFocusTile) {
+function selectSlotDiscipline(slot: ClubScheduleSlot, disc: ChallengeDiscipline) {
+  if (slot.discipline === disc) return;
+  slot.discipline = disc;
+  slot.focus_group = "all";
+  slot.focus_key = "all";
+  slot.objective = "all";
+}
+
+function selectSlotFocusTile(slot: ClubScheduleSlot, tile: WarmupFocusTile) {
   if (tile.id === "mix") {
-    selectedFocusGroup.value = "all";
-    selectedFocusKeys.value = ["all"];
-    selectedObjective.value = "all";
+    slot.focus_group = "all";
+    slot.focus_key = "all";
+    slot.objective = "all";
     return;
   }
-
   if (tile.focusGroup === "objective") {
-    selectedObjective.value = tile.focusKey;
-    selectedFocusGroup.value = "objective";
-    selectedFocusKeys.value = [tile.focusKey];
+    slot.focus_group = "objective";
+    slot.focus_key = tile.focusKey;
+    slot.objective = tile.focusKey;
     return;
   }
-
-  selectedFocusGroup.value = tile.focusGroup;
-  selectedFocusKeys.value = [tile.focusKey];
+  slot.focus_group = tile.focusGroup;
+  slot.focus_key = tile.focusKey;
+  slot.objective = "all";
 }
 
-function isTileSelected(tile: WarmupFocusTile): boolean {
+function isSlotTileSelected(slot: ClubScheduleSlot, tile: WarmupFocusTile): boolean {
   if (tile.id === "mix") {
-    return selectedFocusKeys.value.includes("all");
+    return slot.focus_key === "all";
   }
-  return selectedFocusKeys.value.includes(tile.focusKey);
+  return slot.focus_key === tile.focusKey;
 }
 
-function toggleScheduleHour(hhmm: string) {
-  const idx = scheduleTimes.value.indexOf(hhmm);
-  if (idx >= 0) {
-    if (scheduleTimes.value.length > 1) {
-      scheduleTimes.value.splice(idx, 1);
+function addIntervalToActiveDay() {
+  const dayCfg = weeklySchedule.value[activeDay.value];
+  if (dayCfg.slots.length >= 8) return;
+
+  const sorted = [...dayCfg.slots].sort((a, b) => a.from_hour - b.from_hour);
+  const last = sorted[sorted.length - 1];
+  let nextFrom = last ? last.to_hour : 10;
+  if (nextFrom >= 22) {
+    nextFrom = 8;
+  }
+  const nextTo = Math.min(22, nextFrom + 2);
+
+  dayCfg.slots.push({
+    id: `${activeDay.value}-${Date.now()}`,
+    from_hour: nextFrom,
+    to_hour: Math.max(nextFrom + 1, nextTo),
+    interval_minutes: 15,
+    discipline: "tactics",
+    difficulty: "Novice",
+    focus_group: "all",
+    focus_key: "all",
+    objective: "all",
+  });
+}
+
+function removeIntervalFromActiveDay(slotId: string) {
+  const dayCfg = weeklySchedule.value[activeDay.value];
+  dayCfg.slots = dayCfg.slots.filter((s) => s.id !== slotId);
+}
+
+async function toggleMasterActive() {
+  if (isTogglingActive.value || !club.value) return;
+  isTogglingActive.value = true;
+  statusBanner.value = null;
+  try {
+    const nextVal = !isClubActive.value;
+    const updated = await cabinetStore.toggleClubActive(chatId.value, nextVal);
+    if (updated) {
+      club.value = updated;
+      isClubActive.value = updated.is_active;
     }
-  } else {
-    scheduleTimes.value.push(hhmm);
-    scheduleTimes.value.sort();
+  } finally {
+    isTogglingActive.value = false;
   }
 }
 
@@ -133,13 +223,8 @@ async function loadClub() {
       `/clubs/${encodeURIComponent(chatId.value)}`
     );
     club.value = res;
-    selectedDisciplines.value = [...res.filter_disciplines];
-    activePreviewDiscipline.value = res.filter_disciplines[0] || "tactics";
-    selectedDifficulties.value = [...res.filter_difficulties];
-    selectedFocusGroup.value = res.filter_focus_group || "all";
-    selectedFocusKeys.value = [...res.filter_focus_keys];
-    selectedObjective.value = res.filter_objective || "all";
-    scheduleTimes.value = [...res.schedule_times];
+    isClubActive.value = res.is_active;
+    weeklySchedule.value = normalizeWeeklySchedule(res.weekly_schedule);
     clubLanguage.value = res.language || "ru";
     clubTimezone.value = res.timezone || "Europe/Berlin";
   } finally {
@@ -147,7 +232,15 @@ async function loadClub() {
   }
 }
 
-async function saveSettings() {
+async function saveSettings(): Promise<boolean> {
+  if (overlappingDays.value.length > 0) {
+    statusBanner.value = {
+      type: "error",
+      text: "Интервалы времени не должны пересекаться в пределах одного дня!",
+    };
+    return false;
+  }
+
   isSaving.value = true;
   statusBanner.value = null;
   try {
@@ -156,20 +249,25 @@ async function saveSettings() {
       {
         method: "PUT",
         body: JSON.stringify({
+          is_active: isClubActive.value,
           language: clubLanguage.value,
           timezone: clubTimezone.value,
-          schedule_times: scheduleTimes.value,
+          weekly_schedule: weeklySchedule.value,
           leaderboard_cron_days: club.value?.leaderboard_cron_days ?? 3,
-          filter_disciplines: selectedDisciplines.value,
-          filter_difficulties: selectedDifficulties.value,
-          filter_focus_group: selectedFocusGroup.value,
-          filter_focus_keys: selectedFocusKeys.value,
-          filter_objective: selectedObjective.value,
         }),
       }
     );
     club.value = updated;
-    statusBanner.value = t("settings_saved_ok");
+    isClubActive.value = updated.is_active;
+    weeklySchedule.value = normalizeWeeklySchedule(updated.weekly_schedule);
+    statusBanner.value = { type: "success", text: t("settings_saved_ok") };
+    return true;
+  } catch (err) {
+    statusBanner.value = {
+      type: "error",
+      text: err instanceof Error ? err.message : String(err),
+    };
+    return false;
   } finally {
     isSaving.value = false;
   }
@@ -179,7 +277,10 @@ async function publishChallengeNow() {
   isPublishing.value = true;
   statusBanner.value = null;
   try {
-    await saveSettings();
+    const ok = await saveSettings();
+    if (!ok) return;
+
+    const firstSlot = weeklySchedule.value[activeDay.value].slots[0];
     const res = await apiRequest<{
       ok: boolean;
       challenge: {
@@ -190,12 +291,19 @@ async function publishChallengeNow() {
       };
     }>(`/clubs/${encodeURIComponent(chatId.value)}/publish-now`, {
       method: "POST",
-      body: JSON.stringify({
-        discipline: activePreviewDiscipline.value,
-        difficulty: selectedDifficulties.value[0] || "Novice",
-      }),
+      body: JSON.stringify(
+        firstSlot
+          ? {
+              discipline: firstSlot.discipline,
+              difficulty: firstSlot.difficulty,
+              focusGroup: firstSlot.focus_group,
+              focusKey: firstSlot.focus_key,
+              objective: firstSlot.objective,
+            }
+          : {}
+      ),
     });
-    statusBanner.value = "Челлендж опубликован в теме клуба!";
+
     if (res.challenge) {
       await router.push(
         `/challenge/${res.challenge.discipline}/${encodeURIComponent(
@@ -205,6 +313,11 @@ async function publishChallengeNow() {
         )}/${encodeURIComponent(res.challenge.chatId)}`
       );
     }
+  } catch (err) {
+    statusBanner.value = {
+      type: "error",
+      text: err instanceof Error ? err.message : String(err),
+    };
   } finally {
     isPublishing.value = false;
   }
@@ -217,194 +330,387 @@ onMounted(() => {
 
 <template>
   <div class="mx-auto flex max-w-2xl flex-col gap-4 px-3 py-4">
-    <!-- Club Settings Header -->
+    <!-- Club Settings Header + Quick Master Active Toggle -->
     <section
       v-if="club"
-      class="glass flex flex-wrap items-center justify-between gap-2 p-4"
+      class="glass flex flex-col gap-3 p-4"
     >
-      <div>
-        <div class="text-xs font-bold tracking-wider text-brand uppercase">
-          {{ t("settings_title") }}
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <button
+            type="button"
+            class="mb-1 text-[11px] font-semibold text-text-secondary transition hover:text-brand"
+            @click="router.push('/cabinet')"
+          >
+            ← {{ t("nav_cabinet") }}
+          </button>
+          <div class="text-xs font-bold tracking-wider text-brand uppercase">
+            {{ t("settings_title") }}
+          </div>
+          <h1 class="mt-0.5 text-base font-bold text-text-primary">
+            {{ club.title }} (Topic #{{ club.topic_thread_id }})
+          </h1>
         </div>
-        <h1 class="mt-0.5 text-base font-bold text-text-primary">
-          {{ club.title }} (Topic #{{ club.topic_thread_id }})
-        </h1>
+
+        <!-- Master Toggle Switch (active: true / false) -->
+        <button
+          v-if="club.status !== 'blocked'"
+          type="button"
+          :disabled="isTogglingActive"
+          class="flex items-center gap-2.5 rounded-full border px-3.5 py-1.5 text-xs font-bold transition"
+          :class="
+            isClubActive
+              ? 'border-brand bg-brand/15 text-brand'
+              : 'border-border bg-elevated text-text-secondary'
+          "
+          @click="toggleMasterActive"
+        >
+          <span
+            class="relative inline-flex h-5 w-9 items-center rounded-full transition"
+            :class="isClubActive ? 'bg-brand' : 'bg-border'"
+          >
+            <span
+              class="inline-block h-3.5 w-3.5 transform rounded-full bg-on-brand transition"
+              :class="isClubActive ? 'translate-x-4.5' : 'translate-x-1'"
+            ></span>
+          </span>
+          <span>
+            {{
+              isClubActive
+                ? t("settings_bot_active")
+                : t("settings_bot_paused")
+            }}
+          </span>
+        </button>
       </div>
 
-      <span class="rounded border border-border bg-elevated px-2.5 py-1 text-xs font-bold text-brand uppercase">
-        {{ club.status }}
-      </span>
+      <!-- Smart Auto-Pause Notice -->
+      <div
+        v-if="club.auto_paused && isClubActive"
+        class="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-xs text-warning"
+      >
+        ⏸ <strong>{{ t("settings_auto_paused_badge") }}</strong> — расписание автоматически возобновится, как только кто-то в клубе решит активную задачу или сдастся.
+      </div>
     </section>
 
+    <!-- Feedback Banner -->
     <div
       v-if="statusBanner"
-      class="rounded-lg border border-success/40 bg-success/15 px-3 py-2 text-xs font-bold text-success"
+      class="rounded-lg border px-3 py-2 text-xs font-bold"
+      :class="
+        statusBanner.type === 'success'
+          ? 'border-success/40 bg-success/15 text-success'
+          : 'border-danger/40 bg-danger/15 text-danger'
+      "
     >
-      {{ statusBanner }}
+      {{ statusBanner.text }}
     </div>
 
-    <!-- 1. Disciplines Grid (WarmUp Top Cards Style) -->
-    <section class="glass flex flex-col gap-3 p-4">
-      <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-        {{ t("settings_step_1") }}
-      </h2>
-
-      <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-        <button
-          v-for="disc in ALL_CHALLENGE_DISCIPLINES"
-          :key="disc"
-          type="button"
-          class="flex items-center justify-between rounded-lg border p-3.5 text-left transition"
-          :class="
-            selectedDisciplines.includes(disc)
-              ? 'border-brand bg-elevated text-text-primary'
-              : 'border-border bg-surface text-text-secondary hover:border-border-hover'
-          "
-          @click="toggleDiscipline(disc)"
-        >
-          <span class="text-xs font-bold tracking-wider uppercase">
-            {{ disciplineTitle(disc) }}
-          </span>
-          <span
-            class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-            :class="
-              selectedDisciplines.includes(disc)
-                ? 'bg-brand text-on-brand'
-                : 'bg-surface text-text-disabled border border-border'
-            "
-          >
-            {{ selectedDisciplines.includes(disc) ? "ON" : "OFF" }}
-          </span>
-        </button>
-      </div>
-    </section>
-
-    <!-- 2. Difficulty & 3. WarmUp Focus Tiles (Matching WarmUp Screenshots) -->
-    <section class="glass flex flex-col gap-4 p-4">
-      <!-- Difficulty Cards -->
-      <div class="flex flex-col gap-2">
+    <!-- 7 Weekday Schedule Tabs + Intervals -->
+    <section class="glass flex flex-col gap-3.5 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-          {{ t("settings_step_2") }}
+          {{ t("settings_step_4") }}
         </h2>
+        <span class="font-condensed text-[11px] text-text-secondary">
+          {{ clubTimezone }}
+        </span>
+      </div>
 
-        <div class="grid grid-cols-3 gap-2.5">
-          <button
-            v-for="diff in ALL_CHALLENGE_DIFFICULTIES"
-            :key="diff"
-            type="button"
-            class="flex flex-col gap-1 rounded-lg border p-3 text-left transition"
+      <!-- 7 Weekday Tabs [Пн..Вс] -->
+      <div class="grid grid-cols-7 gap-1 rounded-xl border border-border bg-elevated p-1">
+        <button
+          v-for="day in ALL_DAYS_OF_WEEK"
+          :key="day"
+          type="button"
+          class="flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-xs font-bold transition"
+          :class="
+            activeDay === day
+              ? 'bg-brand text-on-brand'
+              : 'text-text-secondary hover:text-text-primary'
+          "
+          @click="activeDay = day"
+        >
+          <span>{{ dayLabel(day) }}</span>
+          <span
+            class="h-1.5 w-1.5 rounded-full"
             :class="
-              selectedDifficulties.includes(diff)
-                ? 'border-brand bg-elevated text-text-primary'
-                : 'border-border bg-surface text-text-secondary hover:border-border-hover'
+              weeklySchedule[day].enabled && weeklySchedule[day].slots.length > 0
+                ? activeDay === day
+                  ? 'bg-on-brand'
+                  : 'bg-brand'
+                : 'bg-text-disabled/50'
             "
-            @click="toggleDifficulty(diff)"
+          ></span>
+        </button>
+      </div>
+
+      <!-- Selected Day Controls: Day On/Off Toggle + Copy Helpers -->
+      <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-elevated px-3 py-2.5">
+        <button
+          type="button"
+          class="flex items-center gap-2 text-xs font-bold"
+          :class="currentDayConfig.enabled ? 'text-brand' : 'text-text-secondary'"
+          @click="currentDayConfig.enabled = !currentDayConfig.enabled"
+        >
+          <span
+            class="relative inline-flex h-5 w-9 items-center rounded-full transition"
+            :class="currentDayConfig.enabled ? 'bg-brand' : 'bg-border'"
           >
-            <span class="text-sm font-bold">
-              {{ difficultyTitle(diff) }}
-            </span>
-            <span class="text-[11px] text-text-secondary">
-              {{
-                activePreviewDiscipline === "theoretical_endgames"
-                  ? "MOZERO"
-                  : diff === "Novice"
-                    ? "Maia 1500"
-                    : diff === "Pro"
-                      ? "Maia 2200"
-                      : "MOZERO"
-              }}
-            </span>
+            <span
+              class="inline-block h-3.5 w-3.5 transform rounded-full bg-on-brand transition"
+              :class="currentDayConfig.enabled ? 'translate-x-4.5' : 'translate-x-1'"
+            ></span>
+          </span>
+          <span>
+            {{ dayLabel(activeDay) }}:
+            {{
+              currentDayConfig.enabled
+                ? t("settings_day_active")
+                : t("settings_day_off")
+            }}
+          </span>
+        </button>
+
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            class="rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-text-secondary transition hover:border-brand hover:text-brand"
+            @click="
+              copyCurrentDayTo(
+                ['mon', 'tue', 'wed', 'thu', 'fri'],
+                'Расписание скопировано на будни (Пн–Пт)'
+              )
+            "
+          >
+            {{ t("settings_copy_weekdays") }}
+          </button>
+
+          <button
+            type="button"
+            class="rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-text-secondary transition hover:border-brand hover:text-brand"
+            @click="
+              copyCurrentDayTo(
+                ALL_DAYS_OF_WEEK,
+                'Расписание применено ко всей неделе (Пн–Вс)'
+              )
+            "
+          >
+            {{ t("settings_copy_all_week") }}
           </button>
         </div>
       </div>
 
-      <!-- WarmUp Focus Tiles -->
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-between">
-          <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-            {{ t("settings_step_3") }} ({{
-              disciplineTitle(activePreviewDiscipline)
-            }})
-          </h2>
-        </div>
+      <!-- Day Off Placeholder -->
+      <div
+        v-if="!currentDayConfig.enabled"
+        class="rounded-lg border border-dashed border-border py-6 text-center text-xs text-text-secondary"
+      >
+        😴 В этот день недели публикация челленджей отключена ({{ t("settings_day_off") }}).
+      </div>
 
-        <!-- Full-width MIX Button -->
-        <button
-          v-if="focusTilesForActiveDiscipline[0]"
-          type="button"
-          class="w-full rounded-lg border py-2.5 text-center text-xs font-bold tracking-wider uppercase transition"
-          :class="
-            isTileSelected(focusTilesForActiveDiscipline[0])
-              ? 'border-brand bg-elevated text-brand'
-              : 'border-border bg-surface text-text-secondary hover:border-border-hover'
-          "
-          @click="selectFocusTile(focusTilesForActiveDiscipline[0])"
-        >
-          MIX
-        </button>
-
-        <!-- Sub-tiles Grid -->
+      <!-- Active Day Interval Slots -->
+      <div v-else class="flex flex-col gap-3">
         <div
-          class="grid gap-2"
-          :class="
-            activePreviewDiscipline === 'tactics'
-              ? 'grid-cols-3'
-              : 'grid-cols-2'
-          "
+          v-if="hasOverlapInDay(activeDay)"
+          class="rounded-lg border border-danger/40 bg-danger/15 px-3 py-2 text-xs font-semibold text-danger"
         >
-          <button
-            v-for="tile in focusTilesForActiveDiscipline.slice(1)"
-            :key="tile.id"
-            type="button"
-            class="rounded-lg border py-2.5 text-center text-xs font-semibold transition"
-            :class="[
-              tile.id === 'extra' ? 'col-span-2 font-bold text-brand' : '',
-              isTileSelected(tile)
-                ? 'border-brand bg-elevated text-brand'
-                : 'border-border bg-surface text-text-secondary hover:border-border-hover',
-            ]"
-            @click="selectFocusTile(tile)"
-          >
-            {{ lang === "en" ? tile.labelEn : tile.labelRu }}
-          </button>
+          ⚠️ Интервалы на этот день пересекаются! Пожалуйста, скорректируйте часы начала/окончания.
         </div>
+
+        <div
+          v-for="(slot, idx) in currentDayConfig.slots"
+          :key="slot.id"
+          class="flex flex-col gap-3 rounded-xl border border-border bg-elevated p-3.5"
+        >
+          <!-- Row 1: Interval Dropdowns (From - To - Every) + Delete -->
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2.5">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <span class="rounded bg-surface px-2 py-0.5 font-condensed font-bold text-brand">
+                #{{ idx + 1 }}
+              </span>
+
+              <label class="flex items-center gap-1.5">
+                <span class="text-text-secondary">{{ t("settings_from") }}</span>
+                <select
+                  :value="slot.from_hour"
+                  class="rounded-md border border-border bg-surface px-2 py-1 font-condensed text-xs font-bold text-text-primary focus:border-brand focus:outline-none"
+                  @change="
+                    handleFromHourChange(
+                      slot,
+                      ($event.target as HTMLSelectElement).value
+                    )
+                  "
+                >
+                  <option v-for="h in FROM_HOURS" :key="h" :value="h">
+                    {{ formatHour(h) }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="flex items-center gap-1.5">
+                <span class="text-text-secondary">{{ t("settings_to") }}</span>
+                <select
+                  :value="slot.to_hour"
+                  class="rounded-md border border-border bg-surface px-2 py-1 font-condensed text-xs font-bold text-text-primary focus:border-brand focus:outline-none"
+                  @change="
+                    handleToHourChange(
+                      slot,
+                      ($event.target as HTMLSelectElement).value
+                    )
+                  "
+                >
+                  <option
+                    v-for="h in getToHoursForSlot(slot.from_hour)"
+                    :key="h"
+                    :value="h"
+                  >
+                    {{ formatHour(h) }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="flex items-center gap-1.5">
+                <span class="text-text-secondary">{{ t("settings_every") }}</span>
+                <select
+                  :value="slot.interval_minutes"
+                  class="rounded-md border border-border bg-surface px-2 py-1 font-condensed text-xs font-bold text-brand focus:border-brand focus:outline-none"
+                  @change="
+                    handleIntervalChange(
+                      slot,
+                      ($event.target as HTMLSelectElement).value
+                    )
+                  "
+                >
+                  <option
+                    v-for="mins in ALL_SCHEDULE_INTERVALS"
+                    :key="mins"
+                    :value="mins"
+                  >
+                    {{ mins }} {{ t("settings_min") }}
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <button
+              type="button"
+              class="rounded-md border border-border bg-surface px-2 py-1 text-xs font-bold text-text-secondary transition hover:border-danger hover:text-danger"
+              title="Удалить интервал"
+              @click="removeIntervalFromActiveDay(slot.id)"
+            >
+              ✕
+            </button>
+          </div>
+
+          <!-- Row 2: Single Discipline per Interval -->
+          <div class="flex flex-col gap-1.5">
+            <span class="text-[11px] font-bold tracking-wider text-text-secondary uppercase">
+              Дисциплина (одна на интервал)
+            </span>
+            <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+              <button
+                v-for="disc in ALL_CHALLENGE_DISCIPLINES"
+                :key="disc"
+                type="button"
+                class="rounded-lg border px-2.5 py-2 text-center text-[11px] font-bold uppercase transition"
+                :class="
+                  slot.discipline === disc
+                    ? 'border-brand bg-brand/15 text-brand'
+                    : 'border-border bg-surface text-text-secondary hover:border-border-hover'
+                "
+                @click="selectSlotDiscipline(slot, disc)"
+              >
+                {{ disciplineTitle(disc) }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Row 3: Single Difficulty per Interval -->
+          <div class="flex flex-col gap-1.5">
+            <span class="text-[11px] font-bold tracking-wider text-text-secondary uppercase">
+              Сложность
+            </span>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button
+                v-for="diff in ALL_CHALLENGE_DIFFICULTIES"
+                :key="diff"
+                type="button"
+                class="flex flex-col items-center rounded-lg border py-1.5 text-center transition"
+                :class="
+                  slot.difficulty === diff
+                    ? 'border-brand bg-brand/15 text-brand'
+                    : 'border-border bg-surface text-text-secondary hover:border-border-hover'
+                "
+                @click="slot.difficulty = diff"
+              >
+                <span class="text-xs font-bold">{{ difficultyTitle(diff) }}</span>
+                <span class="text-[10px] opacity-80">
+                  {{
+                    slot.discipline === "theoretical_endgames"
+                      ? "MOZERO"
+                      : diff === "Novice"
+                        ? "Maia 1500"
+                        : diff === "Pro"
+                          ? "Maia 2200"
+                          : "MOZERO"
+                  }}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Row 4: Focus / Theme Tile for this Interval's Discipline -->
+          <div class="flex flex-col gap-1.5">
+            <span class="text-[11px] font-bold tracking-wider text-text-secondary uppercase">
+              Тема / Фокус ({{ disciplineTitle(slot.discipline) }})
+            </span>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="tile in getWarmupTilesForDiscipline(slot.discipline)"
+                :key="tile.id"
+                type="button"
+                class="rounded-md border px-2.5 py-1 text-xs font-semibold transition"
+                :class="
+                  isSlotTileSelected(slot, tile)
+                    ? 'border-brand bg-brand/15 text-brand font-bold'
+                    : 'border-border bg-surface text-text-secondary hover:border-border-hover'
+                "
+                @click="selectSlotFocusTile(slot, tile)"
+              >
+                {{ lang === "en" ? tile.labelEn : tile.labelRu }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Interval Button -->
+        <button
+          v-if="currentDayConfig.slots.length < 8"
+          type="button"
+          class="w-full rounded-lg border border-dashed border-brand/50 bg-surface py-2.5 text-xs font-bold text-brand transition hover:border-brand hover:bg-elevated"
+          @click="addIntervalToActiveDay"
+        >
+          {{ t("settings_add_interval") }}
+        </button>
       </div>
     </section>
 
-    <!-- 4. Schedule Times & Language -->
-    <section class="glass flex flex-col gap-3 p-4">
-      <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-        {{ t("settings_step_4") }}
-      </h2>
-
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="hhmm in AVAILABLE_HOURS"
-          :key="hhmm"
-          type="button"
-          class="rounded-md border px-2.5 py-1.5 font-condensed text-xs font-bold transition"
-          :class="
-            scheduleTimes.includes(hhmm)
-              ? 'border-brand bg-elevated text-brand'
-              : 'border-border bg-surface text-text-secondary'
-          "
-          @click="toggleScheduleHour(hhmm)"
-        >
-          {{ hhmm }}
-        </button>
-      </div>
-
-      <div class="flex items-center gap-3 pt-1">
-        <span class="text-xs text-text-secondary">Язык постов бота:</span>
+    <!-- Bot Language -->
+    <section class="glass flex flex-wrap items-center justify-between gap-3 p-4">
+      <span class="text-xs font-bold tracking-wider text-text-secondary uppercase">
+        Язык постов бота в Telegram
+      </span>
+      <div class="flex items-center gap-2">
         <button
           v-for="l in ['ru', 'en'] as const"
           :key="l"
           type="button"
-          class="rounded-md border px-3 py-1 text-xs font-bold uppercase"
+          class="rounded-md border px-3.5 py-1.5 text-xs font-bold uppercase transition"
           :class="
             clubLanguage === l
-              ? 'border-brand bg-elevated text-brand'
-              : 'border-border bg-surface text-text-secondary'
+              ? 'border-brand bg-brand/15 text-brand'
+              : 'border-border bg-elevated text-text-secondary'
           "
           @click="clubLanguage = l"
         >
@@ -435,4 +741,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-

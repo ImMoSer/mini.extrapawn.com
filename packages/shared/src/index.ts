@@ -7,8 +7,34 @@ export const DEFAULT_CLUB_CHAT_ID = "-1002255301933";
 export const DEFAULT_CLUB_THREAD_ID = 293770;
 export const DEFAULT_CLUB_TITLE = "EXTRAPAWNCLUB";
 export const DEFAULT_CLUB_INVITE_URL = "https://t.me/EXTRAPAWNCLUB/293770";
+export const MAX_OWNED_CLUBS_PER_USER = 2;
 
 export type AppLanguage = "ru" | "en" | "de";
+
+export type DayOfWeekKey =
+  | "mon"
+  | "tue"
+  | "wed"
+  | "thu"
+  | "fri"
+  | "sat"
+  | "sun";
+
+export const ALL_DAYS_OF_WEEK: readonly DayOfWeekKey[] = [
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+  "sun",
+] as const;
+
+export type ScheduleIntervalMinutes = 10 | 15 | 30 | 60;
+
+export const ALL_SCHEDULE_INTERVALS: readonly ScheduleIntervalMinutes[] = [
+  10, 15, 30, 60,
+] as const;
 
 export type ChallengeDiscipline =
   | "tactics"
@@ -88,6 +114,204 @@ export const PRACTICAL_WARMUP_TILES: readonly WarmupFocusTile[] = [
   { id: "complex", focusGroup: "domain", focusKey: "COMPLEX", labelRu: "Сложный", labelEn: "Complex Ending" },
   { id: "extra", focusGroup: "domain", focusKey: "EXTRA", labelRu: "EXTRAPAWN", labelEn: "EXTRAPAWN" },
 ];
+
+export function getWarmupTilesForDiscipline(
+  discipline: ChallengeDiscipline
+): readonly WarmupFocusTile[] {
+  if (discipline === "tactics") {
+    return TACTICS_WARMUP_TILES;
+  }
+  if (discipline === "theoretical_endgames") {
+    return THEORETICAL_WARMUP_TILES;
+  }
+  return PRACTICAL_WARMUP_TILES;
+}
+
+export interface ClubScheduleSlot {
+  id: string;
+  from_hour: number;
+  to_hour: number;
+  interval_minutes: ScheduleIntervalMinutes;
+  discipline: ChallengeDiscipline;
+  difficulty: ChallengeDifficulty;
+  focus_group: string;
+  focus_key: string;
+  objective: string;
+}
+
+export interface DayScheduleConfig {
+  enabled: boolean;
+  slots: ClubScheduleSlot[];
+}
+
+export type WeeklyScheduleConfig = Record<DayOfWeekKey, DayScheduleConfig>;
+
+export function createDefaultDaySlots(prefix: string): ClubScheduleSlot[] {
+  return [
+    {
+      id: `${prefix}-1`,
+      from_hour: 10,
+      to_hour: 11,
+      interval_minutes: 60,
+      discipline: "tactics",
+      difficulty: "Novice",
+      focus_group: "all",
+      focus_key: "all",
+      objective: "all",
+    },
+    {
+      id: `${prefix}-2`,
+      from_hour: 15,
+      to_hour: 16,
+      interval_minutes: 60,
+      discipline: "practical_chess",
+      difficulty: "Pro",
+      focus_group: "all",
+      focus_key: "all",
+      objective: "all",
+    },
+    {
+      id: `${prefix}-3`,
+      from_hour: 20,
+      to_hour: 21,
+      interval_minutes: 60,
+      discipline: "finishhim",
+      difficulty: "Novice",
+      focus_group: "all",
+      focus_key: "all",
+      objective: "all",
+    },
+  ];
+}
+
+export function createDefaultWeeklySchedule(): WeeklyScheduleConfig {
+  const result = {} as WeeklyScheduleConfig;
+  for (const day of ALL_DAYS_OF_WEEK) {
+    result[day] = {
+      enabled: true,
+      slots: createDefaultDaySlots(day),
+    };
+  }
+  return result;
+}
+
+function isValidDiscipline(val: unknown): val is ChallengeDiscipline {
+  return (
+    typeof val === "string" &&
+    (ALL_CHALLENGE_DISCIPLINES as readonly string[]).includes(val)
+  );
+}
+
+function isValidDifficulty(val: unknown): val is ChallengeDifficulty {
+  return (
+    typeof val === "string" &&
+    (ALL_CHALLENGE_DIFFICULTIES as readonly string[]).includes(val)
+  );
+}
+
+function isValidInterval(val: unknown): val is ScheduleIntervalMinutes {
+  return (
+    typeof val === "number" &&
+    (ALL_SCHEDULE_INTERVALS as readonly number[]).includes(val)
+  );
+}
+
+export function normalizeWeeklySchedule(raw: unknown): WeeklyScheduleConfig {
+  const fallback = createDefaultWeeklySchedule();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return fallback;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const result = {} as WeeklyScheduleConfig;
+
+  for (const day of ALL_DAYS_OF_WEEK) {
+    const dayRaw = record[day];
+    if (!dayRaw || typeof dayRaw !== "object" || Array.isArray(dayRaw)) {
+      result[day] = fallback[day];
+      continue;
+    }
+    const dayObj = dayRaw as Record<string, unknown>;
+    const enabled =
+      typeof dayObj.enabled === "boolean" ? dayObj.enabled : true;
+    const rawSlots = Array.isArray(dayObj.slots) ? dayObj.slots : [];
+
+    const parsedSlots: ClubScheduleSlot[] = [];
+    for (let i = 0; i < rawSlots.length; i += 1) {
+      const item: unknown = rawSlots[i];
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const slotObj = item as Record<string, unknown>;
+
+      const rawFrom =
+        typeof slotObj.from_hour === "number"
+          ? Math.trunc(slotObj.from_hour)
+          : 10;
+      const fromHour = Math.min(21, Math.max(8, rawFrom));
+
+      const rawTo =
+        typeof slotObj.to_hour === "number"
+          ? Math.trunc(slotObj.to_hour)
+          : fromHour + 1;
+      const toHour = Math.min(22, Math.max(fromHour + 1, rawTo));
+
+      const intervalMinutes: ScheduleIntervalMinutes = isValidInterval(
+        slotObj.interval_minutes
+      )
+        ? slotObj.interval_minutes
+        : 60;
+
+      const discipline: ChallengeDiscipline = isValidDiscipline(
+        slotObj.discipline
+      )
+        ? slotObj.discipline
+        : "tactics";
+
+      const difficulty: ChallengeDifficulty = isValidDifficulty(
+        slotObj.difficulty
+      )
+        ? slotObj.difficulty
+        : "Novice";
+
+      const focusGroup =
+        typeof slotObj.focus_group === "string" && slotObj.focus_group.trim()
+          ? slotObj.focus_group.trim()
+          : "all";
+      const focusKey =
+        typeof slotObj.focus_key === "string" && slotObj.focus_key.trim()
+          ? slotObj.focus_key.trim()
+          : "all";
+      const objective =
+        typeof slotObj.objective === "string" && slotObj.objective.trim()
+          ? slotObj.objective.trim()
+          : "all";
+
+      const id =
+        typeof slotObj.id === "string" && slotObj.id.trim()
+          ? slotObj.id.trim()
+          : `${day}-${i + 1}`;
+
+      parsedSlots.push({
+        id,
+        from_hour: fromHour,
+        to_hour: toHour,
+        interval_minutes: intervalMinutes,
+        discipline,
+        difficulty,
+        focus_group: focusGroup,
+        focus_key: focusKey,
+        objective,
+      });
+    }
+
+    parsedSlots.sort((a, b) => a.from_hour - b.from_hour);
+    result[day] = {
+      enabled,
+      slots: parsedSlots,
+    };
+  }
+
+  return result;
+}
 
 // ============================================================================
 // Puzzle Service Raw Catalog Payloads
@@ -177,9 +401,12 @@ export interface ClubSummaryDTO {
   language: AppLanguage;
   timezone: string;
   status: ClubStatus;
+  is_active: boolean;
+  auto_paused: boolean;
   blocked_reason: string | null;
   is_default: boolean;
   is_admin: boolean;
+  weekly_schedule: WeeklyScheduleConfig;
   schedule_times: string[];
   leaderboard_cron_days: number;
   filter_disciplines: ChallengeDiscipline[];
@@ -195,6 +422,9 @@ export interface UserCabinetDTO {
   user: TeleUserDTO;
   stats: Record<ChallengeDiscipline, DisciplineAttemptStatsDTO>;
   clubs: ClubSummaryDTO[];
+  my_clubs: ClubSummaryDTO[];
+  owned_clubs_count: number;
+  max_owned_clubs: number;
   default_chat_id: string;
   bot_username: string;
 }
@@ -215,6 +445,13 @@ export interface ChallengeParticipantDTO {
   pgn_moves: string;
   updated_at: string;
   completed_at: string | null;
+}
+
+export interface NextActiveChallengeRefDTO {
+  discipline: ChallengeDiscipline;
+  puzzle_id: string;
+  edition: string;
+  chat_id: string;
 }
 
 export interface ChallengeStateDTO {
@@ -238,6 +475,8 @@ export interface ChallengeStateDTO {
   endgame?: EndgamePuzzlePayload;
   my_entry: ChallengeParticipantDTO | null;
   leaderboard: ChallengeParticipantDTO[];
+  remaining_active_count: number;
+  next_active_challenge: NextActiveChallengeRefDTO | null;
 }
 
 export interface SubmitChallengeAttemptRequest {
@@ -265,29 +504,41 @@ export interface ClubRecordEntryDTO {
   total_attempts: number;
 }
 
+export interface ClubChallengeItemDTO {
+  discipline: ChallengeDiscipline;
+  puzzle_id: string;
+  edition: string;
+  difficulty: ChallengeDifficulty;
+  category: string;
+  domain: string;
+  published_at: string;
+  solved_count: number;
+  best_time_ms: number | null;
+  my_status: ChallengeAttemptStatus | null;
+  my_solved: boolean;
+  my_points: number;
+  my_attempts: number;
+}
+
 export interface ClubRecordsResponseDTO {
   club: ClubSummaryDTO;
   records: ClubRecordEntryDTO[];
-  recent_challenges: {
-    discipline: ChallengeDiscipline;
-    puzzle_id: string;
-    edition: string;
-    difficulty: ChallengeDifficulty;
-    published_at: string;
-  }[];
+  recent_challenges: ClubChallengeItemDTO[];
 }
 
 export interface UpdateClubSettingsRequest {
+  is_active: boolean;
   language: AppLanguage;
   timezone: string;
   status?: "active" | "paused";
-  schedule_times: string[];
+  weekly_schedule: WeeklyScheduleConfig;
   leaderboard_cron_days: number;
-  filter_disciplines: ChallengeDiscipline[];
-  filter_difficulties: ChallengeDifficulty[];
-  filter_focus_group: string;
-  filter_focus_keys: string[];
-  filter_objective: string;
+  schedule_times?: string[];
+  filter_disciplines?: ChallengeDiscipline[];
+  filter_difficulties?: ChallengeDifficulty[];
+  filter_focus_group?: string;
+  filter_focus_keys?: string[];
+  filter_objective?: string;
 }
 
 export interface SuperAdminOverviewDTO {
@@ -318,6 +569,10 @@ export interface ClubCompetitionRowDTO {
   title: string;
   username: string | null;
   is_default: boolean;
+  is_member: boolean;
+  is_admin: boolean;
+  is_active: boolean;
+  auto_paused: boolean;
   member_count: number;
   active_players_30d: number;
   solved_count_30d: number;

@@ -117,7 +117,7 @@ onMounted(() => {
               #{{ club.rank }}
             </span>
             <div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
                 <span class="text-sm font-bold text-text-primary">
                   {{ club.title }}
                 </span>
@@ -126,6 +126,24 @@ onMounted(() => {
                   class="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand uppercase"
                 >
                   OFFICIAL
+                </span>
+                <span
+                  v-if="club.is_admin && !club.is_default"
+                  class="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold text-accent uppercase"
+                >
+                  OWNER
+                </span>
+                <span
+                  v-else-if="club.is_member && !club.is_default"
+                  class="rounded bg-info/15 px-1.5 py-0.5 text-[10px] font-bold text-info uppercase"
+                >
+                  MEMBER
+                </span>
+                <span
+                  v-if="!club.is_active"
+                  class="rounded bg-elevated px-1.5 py-0.5 text-[10px] font-semibold text-text-disabled uppercase"
+                >
+                  PAUSED
                 </span>
               </div>
               <div class="text-[11px] text-text-secondary">
