@@ -4,6 +4,7 @@ import type { Api } from "@lichess-org/chessground/api";
 import type { Config } from "@lichess-org/chessground/config";
 import type { DrawShape } from "@lichess-org/chessground/draw";
 import type { Color, Dests, Key } from "@lichess-org/chessground/types";
+import type { Role as ChessopsRole } from "chessops/types";
 import {
   computed,
   nextTick,
@@ -15,6 +16,7 @@ import {
 } from "vue";
 import type { CoachDrawShape } from "@/shared/lib/coach/visualizer";
 import { requiresPawnPromotion } from "../lib/chessPosition";
+import PromotionDialog from "./PromotionDialog.vue";
 
 const props = defineProps<{
   fen: string;
@@ -166,10 +168,20 @@ function handleAfterMove(orig: Key, dest: Key) {
   });
 }
 
-function selectPromotionPiece(roleChar: "q" | "r" | "b" | "n") {
+const PROMOTION_ROLE_CHAR_MAP: Record<ChessopsRole, "q" | "r" | "b" | "n"> = {
+  queen: "q",
+  rook: "r",
+  bishop: "b",
+  knight: "n",
+  king: "q",
+  pawn: "q",
+};
+
+function selectPromotionPiece(role: ChessopsRole) {
   if (!pendingPromotion.value) return;
   const { orig, dest } = pendingPromotion.value;
   pendingPromotion.value = null;
+  const roleChar = PROMOTION_ROLE_CHAR_MAP[role];
   emit("move", `${orig}${dest}${roleChar}`);
   void nextTick(() => {
     syncGround();
@@ -265,34 +277,15 @@ watch(
   <div class="relative aspect-square w-full overflow-hidden rounded-lg border border-border bg-surface select-none">
     <div ref="boardEl" class="h-full w-full"></div>
 
-    <!-- Pawn Promotion Modal Overlay -->
-    <div
+    <!-- Pawn Promotion Square-Aligned Dialog (ported from app_vue) -->
+    <PromotionDialog
       v-if="pendingPromotion"
-      class="absolute inset-0 z-30 flex items-center justify-center bg-canvas/80 backdrop-blur-xs"
-      @click.self="cancelPromotion"
-    >
-      <div class="flex flex-col items-center gap-3 rounded-xl border border-border bg-elevated p-4 shadow-xl">
-        <span class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-          Выберите фигуру / Promote
-        </span>
-        <div class="flex items-center gap-2">
-          <button
-            v-for="item in [
-              { role: 'q' as const, label: '♛ Queen' },
-              { role: 'r' as const, label: '♜ Rook' },
-              { role: 'b' as const, label: '♝ Bishop' },
-              { role: 'n' as const, label: '♞ Knight' },
-            ]"
-            :key="item.role"
-            type="button"
-            class="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-bold text-text-primary transition hover:border-brand hover:text-brand"
-            @click="selectPromotionPiece(item.role)"
-          >
-            {{ item.label }}
-          </button>
-        </div>
-      </div>
-    </div>
+      :dest="pendingPromotion.dest"
+      :color="props.turnColor"
+      :orientation="props.orientation"
+      @piece-selected="selectPromotionPiece"
+      @cancel="cancelPromotion"
+    />
   </div>
 </template>
 

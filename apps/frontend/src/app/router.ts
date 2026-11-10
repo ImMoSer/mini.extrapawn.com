@@ -4,6 +4,7 @@ import ChallengePlayPage from "@/pages/challenge/ChallengePlayPage.vue";
 import ClubsLeaderboardPage from "@/pages/clubs/ClubsLeaderboardPage.vue";
 import ClubRecordsPage from "@/pages/club-records/ClubRecordsPage.vue";
 import ClubSettingsPage from "@/pages/club-settings/ClubSettingsPage.vue";
+import GoChallengesPage from "@/pages/go/GoChallengesPage.vue";
 import PuzzleRecordsPage from "@/pages/records/PuzzleRecordsPage.vue";
 import SuperAdminPage from "@/pages/super-admin/SuperAdminPage.vue";
 
@@ -23,6 +24,11 @@ export const router = createRouter({
       path: "/clubs",
       name: "clubs-leaderboard",
       component: ClubsLeaderboardPage,
+    },
+    {
+      path: "/go",
+      name: "go-challenges",
+      component: GoChallengesPage,
     },
     {
       path: "/challenge/records/:chatId",

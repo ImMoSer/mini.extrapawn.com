@@ -526,6 +526,15 @@ export interface ClubRecordsResponseDTO {
   recent_challenges: ClubChallengeItemDTO[];
 }
 
+export interface GoActiveChallengeItemDTO extends ClubChallengeItemDTO {
+  chat_id: string;
+  club_title: string;
+}
+
+export interface GoActiveChallengesResponseDTO {
+  challenges: GoActiveChallengeItemDTO[];
+}
+
 export interface UpdateClubSettingsRequest {
   is_active: boolean;
   language: AppLanguage;

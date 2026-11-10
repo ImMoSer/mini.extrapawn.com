@@ -65,6 +65,19 @@ function toggleLanguage() {
       </button>
 
       <button
+        type="button"
+        class="shrink-0 rounded-md px-3.5 py-1.5 text-xs font-black tracking-wider transition"
+        :class="
+          route.path === '/go'
+            ? 'bg-info text-on-brand shadow-xs'
+            : 'border border-info/40 bg-info/10 text-info hover:bg-info/20'
+        "
+        @click="router.push('/go')"
+      >
+        GO
+      </button>
+
+      <button
         v-if="cabinetStore.isSuperadmin"
         type="button"
         class="shrink-0 rounded-md px-3 py-1.5 text-xs font-bold transition"
