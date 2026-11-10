@@ -1,11 +1,16 @@
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import {
+  configureVueProject,
   defineConfigWithVueTs,
   vueTsConfigs,
 } from "@vue/eslint-config-typescript";
 import boundaries from "eslint-plugin-boundaries";
 import pluginVue from "eslint-plugin-vue";
 import { globalIgnores } from "eslint/config";
+
+configureVueProject({
+  rootDir: import.meta.dirname,
+});
 
 export default defineConfigWithVueTs(
   {
@@ -20,12 +25,27 @@ export default defineConfigWithVueTs(
   globalIgnores(["**/dist/**", "**/coverage/**", "public/**"]),
 
   pluginVue.configs["flat/essential"],
-  vueTsConfigs.recommended,
+  vueTsConfigs.recommendedTypeChecked,
 
   {
+    files: ["**/*.{ts,mts,tsx,vue}"],
+    languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-empty-object-type": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/no-floating-promises": "off",
+      "@typescript-eslint/no-misused-promises": [
+        "error",
+        { checksVoidReturn: { attributes: false } },
+      ],
       "vue/multi-word-component-names": "off",
     },
   },
@@ -54,7 +74,7 @@ export default defineConfigWithVueTs(
       "import/resolver": {
         typescript: {
           alwaysTryTypes: true,
-          project: "./tsconfig.app.json",
+          project: `${import.meta.dirname}/tsconfig.app.json`,
         },
       },
     },

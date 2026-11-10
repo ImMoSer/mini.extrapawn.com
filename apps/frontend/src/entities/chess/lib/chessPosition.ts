@@ -119,8 +119,8 @@ export function applyMoveToFen(
     nextFen,
     uci: uciMove.trim(),
     san,
-    from: makeSquare(parsed.from) as Key,
-    to: makeSquare(parsed.to) as Key,
+    from: makeSquare(parsed.from),
+    to: makeSquare(parsed.to),
     isCapture,
     isCheck,
     isCheckmate,
@@ -145,7 +145,8 @@ export function buildReplayTimeline(
   let currentFen = startFen;
 
   for (let i = 0; i < moves.length; i++) {
-    const uci = moves[i]!;
+    const uci = moves[i];
+    if (!uci) break;
     try {
       const applied = applyMoveToFen(currentFen, uci);
       currentFen = applied.nextFen;

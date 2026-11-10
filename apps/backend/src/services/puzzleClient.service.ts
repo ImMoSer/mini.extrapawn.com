@@ -54,10 +54,10 @@ function extractPayloads(raw: RawPuzzleServicePayload): {
   }
   if ("puzzle_id" in raw) {
     if ("ending_fen" in raw && typeof raw.ending_fen === "string") {
-      return { endgame: raw as EndgamePuzzlePayload };
+      return { endgame: raw };
     }
-    if ("tactical_fen" in raw && typeof raw.tactical_fen === "string") {
-      return { tactical: raw as TacticalPuzzlePayload };
+    if ("course_eligible" in raw) {
+      return { tactical: raw };
     }
   }
   return {};
@@ -76,7 +76,7 @@ export function normalizePuzzlePayload(
       );
     }
     const discipline = t.discipline;
-    const difficulty = (t.difficulty || "Novice") as ChallengeDifficulty;
+    const difficulty = t.difficulty || "Novice";
     const botEngine = resolveBotEngine(discipline, difficulty);
     const initialFen = t.tactical_fen;
     const puzzleFen = t.puzzle_fen;
@@ -118,7 +118,7 @@ export function normalizePuzzlePayload(
       );
     }
     const discipline = e.discipline;
-    const difficulty = (e.difficulty || "Novice") as ChallengeDifficulty;
+    const difficulty = e.difficulty || "Novice";
     const botEngine = resolveBotEngine(discipline, difficulty);
     const initialFen =
       e.strategy === "scenarioPlus" && e.tactical_fen
@@ -128,7 +128,7 @@ export function normalizePuzzlePayload(
     const firstMove = e.first_move;
     const userColor = e.user_color;
     const strategy = e.strategy;
-    const objective = (e.objective || "win") as PuzzleObjective;
+    const objective = e.objective || "win";
     const tacticalSolution = e.tactical_solution || "";
     const solutionMoves = tacticalSolution.trim().split(/\s+/).filter(Boolean);
     const lastMoveUci =

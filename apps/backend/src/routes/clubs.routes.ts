@@ -221,7 +221,7 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .returning();
 
       return mapClubRowToSummaryDTO(
-        updated!,
+        updated ?? row,
         req.user.telegramId,
         req.user.isSuperadmin
       );

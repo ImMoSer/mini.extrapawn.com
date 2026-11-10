@@ -219,7 +219,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       return;
     }
     try {
-      const res = (await apiRequest<{
+      const res = await apiRequest<{
         candidates?: { uci: string; outcome?: string; dtm?: number }[];
       }>("/engine/gaviota", {
         method: "POST",
@@ -228,11 +228,9 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
           max_candidates: 3,
           include_pv: false,
         }),
-      })) as {
-        candidates?: { uci: string; outcome?: string; dtm?: number }[];
-      };
-      if (res?.candidates?.length) {
-        const top = res.candidates[0]!;
+      });
+      const top = res?.candidates?.[0];
+      if (top) {
         gaviotaHint.value = `Gaviota TB: ${top.uci} (${top.outcome ?? "TB"}${
           top.dtm !== undefined ? ` DTM ${top.dtm}` : ""
         })`;
@@ -321,8 +319,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     feedbackBanner.value = null;
 
     // 1. Check if we are in the scripted scenario phase
-    if (scenarioStepIndex.value < expectedSolutionMoves.value.length) {
-      const expectedUci = expectedSolutionMoves.value[scenarioStepIndex.value]!;
+    const expectedUci = expectedSolutionMoves.value[scenarioStepIndex.value];
+    if (expectedUci) {
       const preview = applyMoveToFen(currentFen.value, uciMove);
 
       const isMatch =
@@ -359,10 +357,10 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       }
 
       // Play scripted bot reply if available
-      if (scenarioStepIndex.value < expectedSolutionMoves.value.length) {
+      const botUci = expectedSolutionMoves.value[scenarioStepIndex.value];
+      if (botUci) {
         isBotThinking.value = true;
         await new Promise((r) => setTimeout(r, 260));
-        const botUci = expectedSolutionMoves.value[scenarioStepIndex.value]!;
         const botApplied = applyMoveToFen(currentFen.value, botUci);
         currentFen.value = botApplied.nextFen;
         lastMove.value = [botApplied.from, botApplied.to];
@@ -459,7 +457,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       Math.min(replayTimeline.value.length - 1, index)
     );
     replayStepIndex.value = clamped;
-    const snap = replayTimeline.value[clamped]!;
+    const snap = replayTimeline.value[clamped];
+    if (!snap) return;
     currentFen.value = snap.fen;
     lastMove.value = snap.lastMove;
   }
