@@ -915,6 +915,19 @@ async function runScheduledClubsTick(): Promise<void> {
 
     const now = new Date();
     for (const club of activeClubs) {
+      // Recover missed initial challenge if a connected club has never published yet
+      if (!club.isDefault && !club.lastPublishedAt && club.topicThreadId > 0) {
+        try {
+          await telegramBotService.publishChallengeToClub(club.chatId);
+        } catch (err) {
+          console.error(
+            `[TelegramBot] Initial challenge recovery failed for club ${club.chatId}:`,
+            err
+          );
+        }
+        continue;
+      }
+
       if (!club.scheduleTimes?.length) continue;
 
       // Format current HH:MM in the club's timezone
@@ -987,6 +1000,10 @@ export function startTelegramBotBackgroundLoops(): void {
     }
   };
   void loop();
+
+  setTimeout(() => {
+    void runScheduledClubsTick();
+  }, 3_000);
 
   setInterval(() => {
     void runScheduledClubsTick();

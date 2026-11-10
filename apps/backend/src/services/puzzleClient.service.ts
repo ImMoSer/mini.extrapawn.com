@@ -37,11 +37,39 @@ export interface NormalizedChallengePuzzle {
   endgame?: EndgamePuzzlePayload;
 }
 
+export type RawPuzzleServicePayload =
+  | PuzzleServiceResponse
+  | TacticalPuzzlePayload
+  | EndgamePuzzlePayload;
+
+function extractPayloads(raw: RawPuzzleServicePayload): {
+  tactical?: TacticalPuzzlePayload;
+  endgame?: EndgamePuzzlePayload;
+} {
+  if ("tactical" in raw && raw.tactical) {
+    return { tactical: raw.tactical };
+  }
+  if ("endgame" in raw && raw.endgame) {
+    return { endgame: raw.endgame };
+  }
+  if ("puzzle_id" in raw) {
+    if ("ending_fen" in raw && typeof raw.ending_fen === "string") {
+      return { endgame: raw as EndgamePuzzlePayload };
+    }
+    if ("tactical_fen" in raw && typeof raw.tactical_fen === "string") {
+      return { tactical: raw as TacticalPuzzlePayload };
+    }
+  }
+  return {};
+}
+
 export function normalizePuzzlePayload(
-  raw: PuzzleServiceResponse
+  raw: RawPuzzleServicePayload
 ): NormalizedChallengePuzzle {
-  if (raw.tactical) {
-    const t = raw.tactical;
+  const extracted = extractPayloads(raw);
+
+  if (extracted.tactical) {
+    const t = extracted.tactical;
     if (!t.puzzle_fen) {
       throw new Error(
         `[PuzzleClient] Missing pre-calculated puzzle_fen for tactical puzzle ${t.puzzle_id}`
@@ -82,8 +110,8 @@ export function normalizePuzzlePayload(
     };
   }
 
-  if (raw.endgame) {
-    const e = raw.endgame;
+  if (extracted.endgame) {
+    const e = extracted.endgame;
     if (!e.puzzle_fen) {
       throw new Error(
         `[PuzzleClient] Missing pre-calculated puzzle_fen for endgame puzzle ${e.puzzle_id}`
@@ -130,6 +158,113 @@ export function normalizePuzzlePayload(
   );
 }
 
+const TACTICS_FOCUS_GROUPS = new Set([
+  "phase",
+  "length",
+  "goal",
+  "master_game",
+  "cognitive",
+  "motif_group",
+  "geometry",
+  "operator",
+  "concept",
+  "trigger",
+  "motif",
+]);
+
+const THEORETICAL_DOMAINS = new Set([
+  "PAWN",
+  "KNIGHT",
+  "BISHOP",
+  "ROOK",
+  "QUEEN",
+  "COMPLEX",
+]);
+
+const PRACTICAL_DOMAINS = new Set([
+  "PAWN",
+  "KNIGHT",
+  "BISHOP",
+  "ROOK",
+  "QUEEN",
+  "COMPLEX",
+  "EXTRA",
+]);
+
+function normalizeSelectFilterForDiscipline(params: {
+  discipline: ChallengeDiscipline;
+  focusGroup: string;
+  focusKey: string;
+  objective: string;
+}): {
+  focusGroup: string;
+  focusKey: string;
+  objective?: string;
+} {
+  const rawGroup = (params.focusGroup || "all").trim();
+  const rawKey = (params.focusKey || "all").trim();
+  const rawObj = (params.objective || "").trim();
+
+  const validObjective =
+    params.discipline === "theoretical_endgames" &&
+    (rawObj === "win" || rawObj === "hold_draw")
+      ? rawObj
+      : undefined;
+
+  if (rawGroup === "all" || rawKey === "all" || !rawGroup || !rawKey) {
+    return {
+      focusGroup: "all",
+      focusKey: "all",
+      objective: validObjective,
+    };
+  }
+
+  if (params.discipline === "tactics") {
+    if (TACTICS_FOCUS_GROUPS.has(rawGroup)) {
+      return {
+        focusGroup: rawGroup,
+        focusKey: rawKey,
+      };
+    }
+    return { focusGroup: "all", focusKey: "all" };
+  }
+
+  if (params.discipline === "theoretical_endgames") {
+    if (
+      rawGroup === "objective" &&
+      (rawKey === "win" || rawKey === "hold_draw")
+    ) {
+      return {
+        focusGroup: "objective",
+        focusKey: rawKey,
+        objective: rawKey,
+      };
+    }
+    if (rawGroup === "domain" && THEORETICAL_DOMAINS.has(rawKey)) {
+      return {
+        focusGroup: "domain",
+        focusKey: rawKey,
+        objective: validObjective,
+      };
+    }
+    return {
+      focusGroup: "all",
+      focusKey: "all",
+      objective: validObjective,
+    };
+  }
+
+  // practical_chess & finishhim
+  if (rawGroup === "domain" && PRACTICAL_DOMAINS.has(rawKey)) {
+    return {
+      focusGroup: "domain",
+      focusKey: rawKey,
+    };
+  }
+
+  return { focusGroup: "all", focusKey: "all" };
+}
+
 export const puzzleClientService = {
   async getPuzzleById(
     discipline: ChallengeDiscipline,
@@ -140,7 +275,10 @@ export const puzzleClientService = {
     )}/${encodeURIComponent(puzzleId)}`;
     const response = await fetch(url, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "X-User-Id": "tele_app",
+      },
     });
 
     if (!response.ok) {
@@ -150,7 +288,7 @@ export const puzzleClientService = {
       );
     }
 
-    const raw = (await response.json()) as PuzzleServiceResponse;
+    const raw = (await response.json()) as RawPuzzleServicePayload;
     return normalizePuzzlePayload(raw);
   },
 
@@ -163,21 +301,45 @@ export const puzzleClientService = {
     excludeIds: string[];
   }): Promise<NormalizedChallengePuzzle> {
     const url = `${puzzleServiceUrl}/api/training/puzzle/select`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
+    const normalized = normalizeSelectFilterForDiscipline(params);
+
+    const doSelect = async (filter: {
+      focusGroup: string;
+      focusKey: string;
+      objective?: string;
+    }) => {
+      const payload: Record<string, unknown> = {
         discipline: params.discipline,
         difficulty: params.difficulty,
-        focus_group: params.focusGroup || "all",
-        focus_key: params.focusKey || "all",
-        objective: params.objective || "all",
+        focus_group: filter.focusGroup,
+        focus_key: filter.focusKey,
         exclude_ids: params.excludeIds,
-      }),
-    });
+      };
+      if (filter.objective) {
+        payload.objective = filter.objective;
+      }
+
+      return fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    };
+
+    let response = await doSelect(normalized);
+
+    // If a specific focus/objective slice had no matching puzzles or was incompatible, fallback to "all"
+    if (
+      !response.ok &&
+      (normalized.focusGroup !== "all" ||
+        normalized.focusKey !== "all" ||
+        normalized.objective)
+    ) {
+      response = await doSelect({ focusGroup: "all", focusKey: "all" });
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

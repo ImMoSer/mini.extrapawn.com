@@ -25,7 +25,7 @@ onMounted(async () => {
 <template>
   <div class="min-h-screen bg-canvas text-text-primary">
     <TopNavBar />
-    <main class="pb-10">
+    <main class="pb-20">
       <RouterView />
     </main>
   </div>
