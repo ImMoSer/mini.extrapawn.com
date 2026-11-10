@@ -6,6 +6,7 @@ import type { DrawShape } from "@lichess-org/chessground/draw";
 import type { Color, Dests, Key } from "@lichess-org/chessground/types";
 import {
   computed,
+  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -24,6 +25,7 @@ const props = defineProps<{
   check?: boolean;
   interactive?: boolean;
   shapes?: CoachDrawShape[];
+  boardRevision?: number;
 }>();
 
 const emit = defineEmits<{
@@ -159,6 +161,9 @@ function handleAfterMove(orig: Key, dest: Key) {
     return;
   }
   emit("move", `${orig}${dest}`);
+  void nextTick(() => {
+    syncGround();
+  });
 }
 
 function selectPromotionPiece(roleChar: "q" | "r" | "b" | "n") {
@@ -166,6 +171,9 @@ function selectPromotionPiece(roleChar: "q" | "r" | "b" | "n") {
   const { orig, dest } = pendingPromotion.value;
   pendingPromotion.value = null;
   emit("move", `${orig}${dest}${roleChar}`);
+  void nextTick(() => {
+    syncGround();
+  });
 }
 
 function cancelPromotion() {
@@ -243,6 +251,7 @@ watch(
     () => props.lastMove,
     () => props.check,
     () => props.interactive,
+    () => props.boardRevision,
     resolvedShapes,
   ],
   () => {

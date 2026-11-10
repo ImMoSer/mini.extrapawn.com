@@ -271,6 +271,7 @@ onUnmounted(() => {
       :check="store.positionSnapshot.isCheck"
       :interactive="store.isBoardInteractive"
       :shapes="activeBoardShapes"
+      :board-revision="store.boardRevision"
       @move="(uci) => store.handleUserMove(uci)"
     />
 
@@ -302,7 +303,7 @@ onUnmounted(() => {
         </button>
       </template>
 
-      <!-- Finished / Analysis Mode Single-Row Toolbar: [Stockfish] [Coach] | [|< < > >>] | [🏆 Рекорды] -->
+      <!-- Finished / Analysis Mode Single-Row Toolbar: [Stockfish] [Coach] | [SVG Nav] | [🏆 Рекорды] -->
       <template v-else>
         <div class="flex items-center gap-1">
           <button
@@ -332,63 +333,113 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Compact Single-Row Move Navigation |< < > >> -->
-        <div class="inline-flex items-center rounded-md border border-border bg-elevated p-0.5">
+        <!-- Compact Single-Row Move Navigation (Ionicons 5 SVG icons matching app_vue ControlCenter.vue) -->
+        <div class="inline-flex items-center gap-0.5 rounded-md border border-border bg-elevated p-0.5">
           <button
             type="button"
-            class="flex h-6 w-7 items-center justify-center rounded font-mono text-[11px] font-bold transition disabled:opacity-35"
+            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
             :class="
               store.canStepPrev
-                ? 'text-text-primary hover:bg-surface'
+                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
                 : 'text-text-disabled'
             "
             :disabled="!store.canStepPrev"
             aria-label="First move"
             @click="store.goToFirstStep()"
           >
-            |&lt;
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
+              <path
+                d="M400 111v290c0 17.44-17 28.52-31 20.16L121.09 272.79c-12.12-7.25-12.12-26.33 0-33.58L369 90.84c14-8.36 31 2.72 31 20.16z"
+                fill="none"
+                stroke="currentColor"
+                stroke-miterlimit="10"
+                stroke-width="36"
+              />
+              <path
+                d="M112 80v352"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-miterlimit="10"
+                stroke-width="36"
+              />
+            </svg>
           </button>
           <button
             type="button"
-            class="flex h-6 w-6.5 items-center justify-center rounded font-mono text-[12px] font-bold transition disabled:opacity-35"
+            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
             :class="
               store.canStepPrev
-                ? 'text-text-primary hover:bg-surface'
+                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
                 : 'text-text-disabled'
             "
             :disabled="!store.canStepPrev"
             aria-label="Previous move"
             @click="store.stepBackward()"
           >
-            &lt;
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
+              <path
+                d="M328 112L184 256l144 144"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="48"
+              />
+            </svg>
           </button>
           <button
             type="button"
-            class="flex h-6 w-6.5 items-center justify-center rounded font-mono text-[12px] font-bold transition disabled:opacity-35"
+            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
             :class="
               store.canStepNext
-                ? 'text-text-primary hover:bg-surface'
+                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
                 : 'text-text-disabled'
             "
             :disabled="!store.canStepNext"
             aria-label="Next move"
             @click="store.stepForward()"
           >
-            &gt;
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
+              <path
+                d="M184 112l144 144-144 144"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="48"
+              />
+            </svg>
           </button>
           <button
             type="button"
-            class="flex h-6 w-7 items-center justify-center rounded font-mono text-[11px] font-bold transition disabled:opacity-35"
+            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
             :class="
               store.canStepNext
-                ? 'text-text-primary hover:bg-surface'
+                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
                 : 'text-text-disabled'
             "
             :disabled="!store.canStepNext"
             aria-label="Last move"
             @click="store.goToLastStep()"
           >
-            &gt;&gt;
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
+              <path
+                d="M112 111v290c0 17.44 17 28.52 31 20.16l247.9-148.37c12.12-7.25 12.12-26.33 0-33.58L143 90.84c-14-8.36-31 2.72-31 20.16z"
+                fill="none"
+                stroke="currentColor"
+                stroke-miterlimit="10"
+                stroke-width="36"
+              />
+              <path
+                d="M400 80v352"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-miterlimit="10"
+                stroke-width="36"
+              />
+            </svg>
           </button>
         </div>
 
@@ -405,40 +456,6 @@ onUnmounted(() => {
         </button>
       </template>
     </section>
-
-    <!-- Single-Line Horizontal PGN / Replay Strip (never expands vertically!) -->
-    <div
-      v-if="store.isFinished && store.timelineSteps.length > 1"
-      class="glass flex items-center gap-1.5 overflow-x-auto px-2.5 py-1 text-xs whitespace-nowrap"
-    >
-      <template v-if="store.isReplayActive && store.replayParticipant">
-        <span class="shrink-0 rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand">
-          ▶ {{ store.replayParticipant.display_name }}
-        </span>
-        <button
-          type="button"
-          class="shrink-0 rounded border border-border bg-elevated px-1.5 py-0.5 text-[10px] font-bold text-text-secondary hover:text-text-primary"
-          @click="store.exitParticipantReplay()"
-        >
-          ✕
-        </button>
-      </template>
-
-      <button
-        v-for="step in store.timelineSteps.slice(1)"
-        :key="step.stepIndex"
-        type="button"
-        class="shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-bold transition"
-        :class="
-          store.timelineCursor === step.stepIndex
-            ? 'bg-brand text-on-brand'
-            : 'bg-elevated text-text-secondary hover:text-text-primary'
-        "
-        @click="store.setTimelineStep(step.stepIndex)"
-      >
-        {{ step.stepIndex }}.{{ step.san }}
-      </button>
-    </div>
 
     <!-- Stockfish MultiPV = 3 Panel (Below Controls — Zero Board Shift!) -->
     <section
@@ -515,7 +532,6 @@ onUnmounted(() => {
       :material-delta="coach.materialDelta.value"
       :opening-name="coach.openingName.value"
       :last-move-analysis="coach.lastMoveAnalysis.value"
-      :last-move-consequence="coach.lastMoveConsequence.value"
       :pos-explanation="coach.posExplanation.value"
       :top-moves="coach.topMoves.value"
       :selected-move-index="coach.selectedMoveIndex.value"
@@ -523,6 +539,40 @@ onUnmounted(() => {
       @select-move="(idx) => coach.selectMove(idx)"
       @toggle-visuals="coach.toggleVisuals()"
     />
+
+    <!-- Multi-Row Wrapped PGN / Replay Strip (Placed BELOW Stockfish & Coach windows!) -->
+    <div
+      v-if="store.isFinished && store.timelineSteps.length > 1"
+      class="glass flex flex-wrap items-center gap-1.5 px-2.5 py-2 text-xs"
+    >
+      <template v-if="store.isReplayActive && store.replayParticipant">
+        <span class="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand">
+          ▶ {{ store.replayParticipant.display_name }}
+        </span>
+        <button
+          type="button"
+          class="rounded border border-border bg-elevated px-1.5 py-0.5 text-[10px] font-bold text-text-secondary hover:text-text-primary"
+          @click="store.exitParticipantReplay()"
+        >
+          ✕
+        </button>
+      </template>
+
+      <button
+        v-for="step in store.timelineSteps.slice(1)"
+        :key="step.stepIndex"
+        type="button"
+        class="rounded px-1.5 py-0.5 font-mono text-[11px] font-bold transition"
+        :class="
+          store.timelineCursor === step.stepIndex
+            ? 'bg-brand text-on-brand'
+            : 'bg-elevated text-text-secondary hover:text-text-primary'
+        "
+        @click="store.setTimelineStep(step.stepIndex)"
+      >
+        {{ step.stepIndex }}.{{ step.san }}
+      </button>
+    </div>
 
     <!-- Bonus: Next Active Challenge Button -->
     <button

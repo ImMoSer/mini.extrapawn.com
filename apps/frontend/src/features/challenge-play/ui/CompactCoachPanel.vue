@@ -14,7 +14,6 @@ const props = defineProps<{
   materialDelta: number;
   openingName: string | null;
   lastMoveAnalysis: CoachLastMoveAnalysis | null;
-  lastMoveConsequence: string | null;
   posExplanation: CoachExplanation | null;
   topMoves: CoachTopMove[];
   selectedMoveIndex: number;
@@ -179,14 +178,6 @@ function getEvalBadgeInfo(move: CoachTopMove) {
     border: "color-mix(in srgb, var(--color-text-secondary) 20%, transparent)",
   };
 }
-
-function getStrategicThemes() {
-  const raw =
-    props.posExplanation?.strategic_themes || props.posExplanation?.themes || [];
-  return raw
-    .filter((th) => th && th.description && th.strength >= 30)
-    .slice(0, 3);
-}
 </script>
 
 <template>
@@ -254,90 +245,42 @@ function getStrategicThemes() {
       ⚠️ {{ error }}
     </div>
 
-    <!-- Compact Last Move Strip -->
+    <!-- Minimal Last Move Badge Row (only SAN + NAG + Quality Pill) -->
     <div
       v-if="lastMoveAnalysis && lastMoveAnalysis.san"
-      class="border-b border-border px-2.5 py-1.5"
+      class="flex items-center gap-1.5 border-b border-border px-2.5 py-1.5"
     >
-      <div class="flex flex-wrap items-center gap-1.5">
-        <span class="text-[9px] font-bold tracking-wider text-text-disabled uppercase">
-          LAST
-        </span>
-        <span class="font-mono text-sm font-bold text-text-primary">
-          {{ lastMoveAnalysis.san }}
-        </span>
-        <span
-          v-if="!lastMoveAnalysis.loading && lastMoveAnalysis.quality"
-          class="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full text-on-brand"
-          :style="{ backgroundColor: getQualityColor(lastMoveAnalysis.quality) }"
-        >
-          <QualityIcon
-            :quality="lastMoveAnalysis.quality"
-            :size="11"
-            color="var(--color-on-brand)"
-          />
-        </span>
-        <span
-          v-if="!lastMoveAnalysis.loading && lastMoveAnalysis.quality"
-          class="rounded-full px-1.5 py-0.2 text-[9px] font-bold tracking-wider uppercase"
-          :style="{
-            color: getQualityColor(lastMoveAnalysis.quality),
-            backgroundColor: `color-mix(in srgb, ${getQualityColor(lastMoveAnalysis.quality)} 12%, transparent)`,
-            border: `1px solid color-mix(in srgb, ${getQualityColor(lastMoveAnalysis.quality)} 35%, transparent)`,
-          }"
-        >
-          {{ getQualityLabel(lastMoveAnalysis.quality) }}
-        </span>
-        <span
-          v-if="!lastMoveAnalysis.loading && lastMoveAnalysis.summary"
-          class="text-[11px] font-medium text-text-primary"
-        >
-          — {{ lastMoveAnalysis.summary }}
-        </span>
-      </div>
-
-      <div
-        v-if="!lastMoveAnalysis.loading && lastMoveAnalysis.details"
-        class="mt-0.5 text-[11px] leading-tight text-text-secondary"
+      <span class="text-[9px] font-bold tracking-wider text-text-disabled uppercase">
+        LAST
+      </span>
+      <span class="font-mono text-sm font-bold text-text-primary">
+        {{ lastMoveAnalysis.san }}
+      </span>
+      <span
+        v-if="!lastMoveAnalysis.loading && lastMoveAnalysis.quality"
+        class="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full text-on-brand"
+        :style="{ backgroundColor: getQualityColor(lastMoveAnalysis.quality) }"
       >
-        {{ lastMoveAnalysis.details }}
-      </div>
-
-      <div
-        v-if="!lastMoveAnalysis.loading && lastMoveConsequence"
-        class="mt-1 border-t border-border/60 pt-1 text-[10px] leading-tight text-text-secondary"
+        <QualityIcon
+          :quality="lastMoveAnalysis.quality"
+          :size="11"
+          color="var(--color-on-brand)"
+        />
+      </span>
+      <span
+        v-if="!lastMoveAnalysis.loading && lastMoveAnalysis.quality"
+        class="rounded-full px-1.5 py-0.2 text-[9px] font-bold tracking-wider uppercase"
+        :style="{
+          color: getQualityColor(lastMoveAnalysis.quality),
+          backgroundColor: `color-mix(in srgb, ${getQualityColor(lastMoveAnalysis.quality)} 12%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${getQualityColor(lastMoveAnalysis.quality)} 35%, transparent)`,
+        }"
       >
-        <span class="mr-1 font-bold tracking-wider text-text-disabled uppercase">
-          {{ lastMoveAnalysis.consequence ? "Consequence:" : "Key Factor:" }}
-        </span>
-        <span class="text-text-primary">{{ lastMoveConsequence }}</span>
-      </div>
+        {{ getQualityLabel(lastMoveAnalysis.quality) }}
+      </span>
     </div>
 
-    <!-- Compact Key Positional Factors -->
-    <div
-      v-if="getStrategicThemes().length > 0"
-      class="border-b border-border bg-elevated/20 px-2.5 py-1.5"
-    >
-      <div class="mb-0.5 text-[9px] font-bold tracking-widest text-text-secondary uppercase">
-        Positional Factors
-      </div>
-      <ul class="space-y-0.5">
-        <li
-          v-for="th in getStrategicThemes()"
-          :key="`${th.id}-${th.side}`"
-          class="flex items-baseline gap-1.5 text-[11px] leading-tight text-text-secondary"
-        >
-          <span
-            class="h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full"
-            :class="th.strength >= 80 ? 'bg-warning' : 'bg-brand'"
-          />
-          <span>{{ th.description }}</span>
-        </li>
-      </ul>
-    </div>
-
-    <!-- Compact Engine Candidates -->
+    <!-- Compact Engine Candidates (Only NAGs, Badges, Eval & Visual W/D/L Bar) -->
     <div class="flex flex-col gap-1.5 p-2">
       <div class="flex items-center justify-between px-0.5 text-[9px] font-bold tracking-widest text-text-secondary uppercase">
         <span>Engine Candidates</span>
@@ -364,8 +307,8 @@ function getStrategicThemes() {
         "
         @click="emit('select-move', idx)"
       >
-        <!-- Row 1: Rank, SAN, NAG, Character, Tagline, Eval -->
-        <div class="flex flex-wrap items-center gap-1.5">
+        <!-- Row 1: Rank, SAN, NAG, Character Badge, Eval Pill -->
+        <div class="flex items-center gap-1.5">
           <span
             class="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-bold"
             :class="
@@ -411,13 +354,6 @@ function getStrategicThemes() {
           </span>
 
           <span
-            v-if="move.tagline"
-            class="min-w-0 flex-1 truncate text-[11px] font-medium text-text-secondary"
-          >
-            {{ move.tagline }}
-          </span>
-
-          <span
             class="ml-auto rounded-full border px-1.5 py-0.2 font-mono text-[10px] font-bold"
             :style="{
               backgroundColor: getEvalBadgeInfo(move).bg,
@@ -429,95 +365,25 @@ function getStrategicThemes() {
           </span>
         </div>
 
-        <!-- Compact W/D/L Bar -->
+        <!-- Clean Visual W/D/L Bar (without numeric percentages) -->
         <div
           v-if="getWdl(move)"
-          class="mt-1 flex items-center gap-2 text-[9px] font-mono"
-        >
-          <span class="shrink-0 font-bold text-success">
-            {{ getWdl(move)!.white }}%W
-          </span>
-          <div class="flex h-1.5 flex-1 overflow-hidden rounded-full border border-border bg-canvas">
-            <div
-              class="h-full bg-success"
-              :style="{ width: `${getWdl(move)!.white}%` }"
-            />
-            <div
-              class="h-full bg-accent"
-              :style="{ width: `${getWdl(move)!.draw}%` }"
-            />
-            <div
-              class="h-full bg-danger"
-              :style="{ width: `${getWdl(move)!.black}%` }"
-            />
-          </div>
-          <span class="shrink-0 font-bold text-accent">
-            {{ getWdl(move)!.draw }}%D
-          </span>
-          <span class="shrink-0 font-bold text-danger">
-            {{ getWdl(move)!.black }}%L
-          </span>
-        </div>
-
-        <!-- Expanded Details & Compact Continuation ONLY for selected candidate -->
-        <div
-          v-if="selectedMoveIndex === idx"
-          class="mt-1 flex flex-col gap-0.5 text-[11px] leading-tight"
+          class="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full border border-border bg-canvas"
         >
           <div
-            v-if="move.explanation?.summary"
-            class="font-semibold text-text-primary"
-          >
-            {{ move.explanation.summary }}
-          </div>
+            class="h-full bg-success"
+            :style="{ width: `${getWdl(move)!.white}%` }"
+          />
           <div
-            v-if="move.explanation?.details"
-            class="text-text-secondary"
-          >
-            {{ move.explanation.details }}
-          </div>
+            class="h-full bg-accent"
+            :style="{ width: `${getWdl(move)!.draw}%` }"
+          />
           <div
-            v-if="
-              move.plan_brief &&
-              move.plan_brief !== move.tagline &&
-              move.plan_brief !== move.explanation?.details
-            "
-            class="text-text-secondary"
-          >
-            <span class="font-semibold text-text-primary">Idea:</span>
-            {{ move.plan_brief }}
-          </div>
-
-          <!-- Compact Continuation Line -->
-          <div
-            v-if="Array.isArray(move.pvLine) && move.pvLine.length > 1"
-            class="mt-1 border-t border-border/60 pt-1"
-          >
-            <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
-              <span class="font-bold tracking-wider text-text-disabled uppercase">
-                PV:
-              </span>
-              <span
-                v-for="(p, i) in move.pvLine.slice(1)"
-                :key="i"
-                class="inline-flex items-baseline gap-1"
-                :title="p.tagline || ''"
-              >
-                <span class="font-mono font-bold text-text-primary">
-                  {{ Number(i) + 1 }}.{{ p.san }}
-                </span>
-                <span
-                  v-if="p.tagline"
-                  class="text-text-secondary"
-                >
-                  ({{ p.tagline }})
-                </span>
-              </span>
-            </div>
-          </div>
+            class="h-full bg-danger"
+            :style="{ width: `${getWdl(move)!.black}%` }"
+          />
         </div>
       </div>
     </div>
   </section>
 </template>
-

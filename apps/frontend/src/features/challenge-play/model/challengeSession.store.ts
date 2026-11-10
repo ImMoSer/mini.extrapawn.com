@@ -28,6 +28,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   const currentFen = ref<string>(
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   );
+  const boardRevision = ref(0);
   const lastMove = ref<[Key, Key] | undefined>(undefined);
   const expectedSolutionMoves = ref<string[]>([]);
   const scenarioStepIndex = ref(0);
@@ -187,6 +188,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     ];
     timelineCursor.value = 0;
     scenarioStepIndex.value = 0;
+    boardRevision.value += 1;
   }
 
   async function loadChallenge(params: {
@@ -283,10 +285,12 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       type: "error",
       messageKey: "challenge_wrong_move",
     };
-    await submitAttemptToBackend(false);
     if (resetToStart && challenge.value) {
       setupBoardFromChallenge(challenge.value);
+    } else {
+      boardRevision.value += 1;
     }
+    await submitAttemptToBackend(false);
   }
 
   async function checkGaviotaIfFewPieces(fen: string): Promise<void> {
@@ -399,7 +403,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         preview.isCheckmate;
 
       if (!isMatch) {
-        await recordFailedAttempt(false);
+        await recordFailedAttempt(true);
         return;
       }
 
@@ -575,6 +579,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     isLoading,
     error,
     currentFen,
+    boardRevision,
     lastMove,
     playedUciMoves,
     playedSanMoves,
