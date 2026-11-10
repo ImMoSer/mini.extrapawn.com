@@ -136,12 +136,22 @@ function buildChallengeCaption(
     ? DISCIPLINE_LABELS_EN[puzzle.discipline]
     : DISCIPLINE_LABELS_RU[puzzle.discipline];
 
+  const plainDiffLabel = isEn
+    ? puzzle.difficulty
+    : puzzle.difficulty === "Novice"
+      ? "Новичок"
+      : puzzle.difficulty === "Pro"
+        ? "Профи"
+        : "Мастер";
+
   const diffLabel =
-    puzzle.discipline === "theoretical_endgames"
-      ? `${isEn ? puzzle.difficulty : puzzle.difficulty === "Novice" ? "Новичок" : puzzle.difficulty === "Pro" ? "Профи" : "Мастер"} (MOZERO)`
-      : isEn
-        ? DIFFICULTY_LABELS_EN[puzzle.difficulty]
-        : DIFFICULTY_LABELS_RU[puzzle.difficulty];
+    puzzle.discipline === "tactics"
+      ? plainDiffLabel
+      : puzzle.discipline === "theoretical_endgames"
+        ? `${plainDiffLabel} (MOZERO)`
+        : isEn
+          ? DIFFICULTY_LABELS_EN[puzzle.difficulty]
+          : DIFFICULTY_LABELS_RU[puzzle.difficulty];
 
   const categoryLabel = formatCategoryLabel(
     puzzle.discipline,

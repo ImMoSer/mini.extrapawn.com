@@ -177,3 +177,24 @@ export function buildReplayTimeline(
   return timeline;
 }
 
+export function uciLineToSan(startFen: string, uciMoves: string[]): string[] {
+  let pos: Chess;
+  try {
+    pos = createChessFromFen(startFen);
+  } catch {
+    return uciMoves;
+  }
+
+  const sanList: string[] = [];
+  for (const uci of uciMoves) {
+    const parsed = parseUci(uci.trim());
+    if (!parsed || !("from" in parsed) || !pos.isLegal(parsed)) {
+      break;
+    }
+    sanList.push(makeSan(pos, parsed));
+    pos.play(parsed);
+  }
+  return sanList;
+}
+
+

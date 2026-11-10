@@ -1,5 +1,18 @@
 import { ref } from "vue";
 
+export type StockfishArrowBrush = "green" | "blue" | "red";
+
+export interface WasmPvLine {
+  multipv: number;
+  depth: number;
+  evalLabel: string;
+  moverCp: number | null;
+  moverMate: number | null;
+  bestMoveUci: string;
+  pvUci: string[];
+  arrowBrush: StockfishArrowBrush;
+}
+
 export interface WasmAnalysisState {
   isReady: boolean;
   isLoading: boolean;
@@ -9,7 +22,22 @@ export interface WasmAnalysisState {
   evalLabel: string;
   evalWhitePercent: number;
   bestMoveUci: string | null;
+  bestMoveBrush: StockfishArrowBrush;
   pvLine: string[];
+  lines: WasmPvLine[];
+}
+
+function classifyMoverEvaluation(
+  moverCp: number | null,
+  moverMate: number | null
+): StockfishArrowBrush {
+  if (moverMate !== null) {
+    return moverMate > 0 ? "green" : "red";
+  }
+  if (moverCp === null) return "blue";
+  if (moverCp >= 100) return "green";
+  if (moverCp <= -100) return "red";
+  return "blue";
 }
 
 export function useStockfishWasm() {
@@ -22,21 +50,27 @@ export function useStockfishWasm() {
     evalLabel: "0.0",
     evalWhitePercent: 50,
     bestMoveUci: null,
+    bestMoveBrush: "blue",
     pvLine: [],
+    lines: [],
   });
 
   let worker: Worker | null = null;
   let currentSideToMove: "w" | "b" = "w";
   let pendingRequest: { fen: string; depth: number } | null = null;
+  const lineMap = new Map<number, WasmPvLine>();
 
   function dispatchAnalysisToWorker(w: Worker, fen: string, depth: number): void {
     const parts = fen.trim().split(/\s+/);
     currentSideToMove = parts[1] === "b" ? "b" : "w";
 
+    lineMap.clear();
     state.value.isAnalyzing = true;
     state.value.depth = 0;
     state.value.bestMoveUci = null;
+    state.value.bestMoveBrush = "blue";
     state.value.pvLine = [];
+    state.value.lines = [];
 
     w.postMessage("stop");
     w.postMessage(`position fen ${fen}`);
@@ -57,11 +91,11 @@ export function useStockfishWasm() {
     };
 
     worker.onmessage = (event: MessageEvent<unknown>) => {
-      const line =
-        typeof event.data === "string" ? event.data.trim() : "";
+      const line = typeof event.data === "string" ? event.data.trim() : "";
       if (!line) return;
 
       if (line === "uciok") {
+        worker?.postMessage("setoption name MultiPV value 3");
         worker?.postMessage("isready");
         return;
       }
@@ -79,45 +113,79 @@ export function useStockfishWasm() {
 
       if (line.startsWith("info ") && line.includes(" pv ")) {
         const depthMatch = line.match(/\bdepth\s+(\d+)/);
+        const multipvMatch = line.match(/\bmultipv\s+(\d+)/);
         const cpMatch = line.match(/\bscore\s+cp\s+(-?\d+)/);
         const mateMatch = line.match(/\bscore\s+mate\s+(-?\d+)/);
         const pvIdx = line.indexOf(" pv ");
 
-        if (depthMatch?.[1]) {
-          state.value.depth = Number(depthMatch[1]);
-        }
+        if (pvIdx === -1) return;
 
+        const pvMoves = line
+          .slice(pvIdx + 4)
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const firstMove = pvMoves[0];
+        if (!firstMove) return;
+
+        const multipv = multipvMatch?.[1] ? Number(multipvMatch[1]) : 1;
+        if (multipv < 1 || multipv > 3) return;
+
+        const depth = depthMatch?.[1] ? Number(depthMatch[1]) : state.value.depth;
         const sign = currentSideToMove === "w" ? 1 : -1;
 
+        let moverCp: number | null = null;
+        let moverMate: number | null = null;
+        let evalLabel = "0.0";
+        let whitePercent = 50;
+
         if (mateMatch?.[1]) {
-          const rawMate = Number(mateMatch[1]) * sign;
-          state.value.evalLabel =
-            rawMate > 0 ? `+M${Math.abs(rawMate)}` : `-M${Math.abs(rawMate)}`;
-          state.value.evalWhitePercent = rawMate > 0 ? 98 : 2;
+          moverMate = Number(mateMatch[1]);
+          const whiteMate = moverMate * sign;
+          evalLabel =
+            whiteMate > 0
+              ? `+M${Math.abs(whiteMate)}`
+              : `-M${Math.abs(whiteMate)}`;
+          whitePercent = whiteMate > 0 ? 98 : 2;
         } else if (cpMatch?.[1]) {
-          const whiteCp = Number(cpMatch[1]) * sign;
+          moverCp = Number(cpMatch[1]);
+          const whiteCp = moverCp * sign;
           const pawns = whiteCp / 100;
-          state.value.evalLabel =
-            pawns > 0 ? `+${pawns.toFixed(1)}` : pawns.toFixed(1);
+          evalLabel = pawns > 0 ? `+${pawns.toFixed(1)}` : pawns.toFixed(1);
           const clamped = Math.max(-800, Math.min(800, whiteCp));
-          state.value.evalWhitePercent = Math.round(
-            50 + (clamped / 800) * 46
-          );
+          whitePercent = Math.round(50 + (clamped / 800) * 46);
         }
 
-        if (pvIdx !== -1) {
-          const pvMoves = line
-            .slice(pvIdx + 4)
-            .trim()
-            .split(/\s+/)
-            .filter(Boolean);
+        const arrowBrush = classifyMoverEvaluation(moverCp, moverMate);
+
+        lineMap.set(multipv, {
+          multipv,
+          depth,
+          evalLabel,
+          moverCp,
+          moverMate,
+          bestMoveUci: firstMove,
+          pvUci: pvMoves.slice(0, 6),
+          arrowBrush,
+        });
+
+        const sortedLines = Array.from(lineMap.values()).sort(
+          (a, b) => a.multipv - b.multipv
+        );
+        state.value.lines = sortedLines;
+
+        if (multipv === 1) {
+          state.value.depth = depth;
+          state.value.evalLabel = evalLabel;
+          state.value.evalWhitePercent = whitePercent;
+          state.value.bestMoveUci = firstMove;
+          state.value.bestMoveBrush = arrowBrush;
           state.value.pvLine = pvMoves.slice(0, 6);
-          state.value.bestMoveUci = pvMoves[0] ?? null;
         }
       } else if (line.startsWith("bestmove ")) {
         state.value.isAnalyzing = false;
         const parts = line.split(/\s+/);
-        if (parts[1] && parts[1] !== "(none)") {
+        if (parts[1] && parts[1] !== "(none)" && !state.value.bestMoveUci) {
           state.value.bestMoveUci = parts[1];
         }
       }
@@ -146,6 +214,7 @@ export function useStockfishWasm() {
 
   function destroyWorker(): void {
     pendingRequest = null;
+    lineMap.clear();
     if (!worker) return;
     worker.postMessage("quit");
     worker.terminate();
@@ -162,4 +231,3 @@ export function useStockfishWasm() {
     destroyWorker,
   };
 }
-

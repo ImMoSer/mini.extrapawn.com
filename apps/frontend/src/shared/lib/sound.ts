@@ -8,6 +8,7 @@ export type SoundKey =
   | "chpock"
   | "tactics_error"
   | "tactics_success"
+  | "victory_applause"
   | "applause"
   | "checkmate"
   | "stalemate"
@@ -33,6 +34,7 @@ const SOUND_DEFINITIONS: Record<SoundKey, string | readonly string[]> = {
   tactics_success: "/sounds/sfx_tactics_success.mp3",
   success: "/sounds/sfx_tactics_success.mp3",
   error: "/sounds/sfx_tactics_error.mp3",
+  victory_applause: "/sounds/applause/applause_1.mp3",
   applause: [
     "/sounds/applause/applause_1.mp3",
     "/sounds/applause/applause_2.mp3",

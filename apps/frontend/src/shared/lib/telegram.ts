@@ -6,6 +6,13 @@ export function initTelegramWebApp(): void {
   try {
     tg.ready();
     tg.expand();
+    // Official Bot API 7.7+ method: prevents swipe-down-to-collapse while
+    // keeping native internal scrolling and 1-tap close via the 'X' button.
+    if (typeof tg.disableVerticalSwipes === "function") {
+      tg.disableVerticalSwipes();
+    } else if (typeof tg.enableClosingConfirmation === "function") {
+      tg.enableClosingConfirmation();
+    }
   } catch (err) {
     console.warn("[TelegramWebApp] init warning:", err);
   }

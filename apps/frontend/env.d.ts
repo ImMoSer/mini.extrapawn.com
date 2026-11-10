@@ -18,6 +18,12 @@ interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   close: () => void;
+  isVerticalSwipesEnabled?: boolean;
+  disableVerticalSwipes?: () => void;
+  enableVerticalSwipes?: () => void;
+  isClosingConfirmationEnabled?: boolean;
+  enableClosingConfirmation?: () => void;
+  disableClosingConfirmation?: () => void;
   openTelegramLink: (url: string) => void;
   openLink: (url: string) => void;
   HapticFeedback?: {

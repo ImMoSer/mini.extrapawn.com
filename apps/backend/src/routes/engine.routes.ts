@@ -36,5 +36,26 @@ export const engineRoutes: FastifyPluginAsync = async (fastify) => {
       );
     }
   );
+
+  fastify.post<{
+    Body: {
+      user_id?: string;
+      start_fen: string;
+      moves?: string[];
+    };
+  }>(
+    "/coach-engine/uci_fen",
+    { preHandler: [fastify.authenticate] },
+    async (req) => {
+      const { user_id, start_fen, moves } = req.body;
+      const effectiveUserId =
+        user_id?.trim() || req.user.username || req.user.telegramId || "mini_user";
+      return engineClientService.analyzeCoachUciFen(
+        effectiveUserId,
+        start_fen,
+        Array.isArray(moves) ? moves : []
+      );
+    }
+  );
 };
 

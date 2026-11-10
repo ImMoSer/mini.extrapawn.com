@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 
 const maiaHubUrl = env.MAIA_HUB_URL.replace(/\/+$/, "");
 const tableServiceUrl = env.TABLESERVICE_URL.replace(/\/+$/, "");
+const coachEngineUrl = env.COACH_ENGINE_URL.replace(/\/+$/, "");
 
 export function resolveBotEngine(
   discipline: ChallengeDiscipline,
@@ -78,6 +79,37 @@ export const engineClientService = {
       const errorText = await response.text();
       throw new Error(
         `[EngineClient] TableService Gaviota HTTP ${response.status}: ${errorText}`
+      );
+    }
+
+    return await response.json();
+  },
+
+  /**
+   * Requests Coach position explanation and visual_commands from `stockfish_server:5000/uci_fen`.
+   */
+  async analyzeCoachUciFen(
+    userId: string,
+    startFen: string,
+    moves: string[]
+  ): Promise<unknown> {
+    const response = await fetch(`${coachEngineUrl}/uci_fen`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        start_fen: startFen,
+        moves,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `[EngineClient] Coach Engine HTTP ${response.status}: ${errorText}`
       );
     }
 

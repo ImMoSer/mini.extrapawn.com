@@ -41,6 +41,7 @@ export const env = {
   ),
   MAIA_HUB_URL: requireEnv("MAIA_HUB_URL", "http://localhost:5002"),
   TABLESERVICE_URL: requireEnv("TABLESERVICE_URL", "http://localhost:5001"),
+  COACH_ENGINE_URL: requireEnv("COACH_ENGINE_URL", "http://localhost:5004"),
   SUPERADMIN_TELEGRAM_ID:
     process.env.SUPERADMIN_TELEGRAM_ID?.trim() || SUPERADMIN_TELEGRAM_ID,
   DEFAULT_CLUB_CHAT_ID:

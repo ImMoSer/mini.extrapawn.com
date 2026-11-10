@@ -17,6 +17,7 @@ services:
       - PUZZLE_SERVICE_URL=${PUZZLE_SERVICE_URL:-http://puzzle-engine:5000}
       - MAIA_HUB_URL=${MAIA_HUB_URL:-http://engine-hub:5000}
       - TABLESERVICE_URL=${TABLESERVICE_URL:-http://tableservice:5000}
+      - COACH_ENGINE_URL=${COACH_ENGINE_URL:-http://stockfish_server:5000}
       - MINI_APP_URL=${MINI_APP_URL:-https://mini.extrapawn.com}
       - BOT_USERNAME=${BOT_USERNAME:-ExtraPawnTeleBot}
     networks:

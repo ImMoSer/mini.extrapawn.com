@@ -1,21 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import type { Key } from "@lichess-org/chessground/types";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   DEFAULT_CLUB_CHAT_ID,
   type ChallengeDiscipline,
   type ChallengeParticipantDTO,
 } from "shared";
+import { uciLineToSan } from "@/entities/chess/lib/chessPosition";
 import MiniChessBoard from "@/entities/chess/ui/MiniChessBoard.vue";
 import { useChallengeSessionStore } from "@/features/challenge-play/model/challengeSession.store";
+import { useCoachAnalysis } from "@/features/challenge-play/model/useCoachAnalysis";
+import CompactCoachPanel from "@/features/challenge-play/ui/CompactCoachPanel.vue";
 import { useI18n, type TranslationKey } from "@/shared/i18n/useI18n";
+import type { CoachDrawShape } from "@/shared/lib/coach/visualizer";
 import { useStockfishWasm } from "@/shared/lib/stockfishWasm";
 
 const route = useRoute();
 const router = useRouter();
 const store = useChallengeSessionStore();
+const coach = useCoachAnalysis();
 const { t, disciplineTitle, difficultyTitle } = useI18n();
 const wasm = useStockfishWasm();
+
+const selectedSfMultipv = ref<number>(1);
 
 const routeParams = computed(() => {
   const discipline = (route.params.discipline ||
@@ -58,14 +66,50 @@ const turnIndicatorText = computed(() => {
     : t("challenge_your_turn_white");
 });
 
-function toggleWasmEngine() {
-  if (!store.isFinished) return;
-  store.isWasmAnalysisEnabled = !store.isWasmAnalysisEnabled;
+const formattedSfLines = computed(() => {
+  const fen = store.currentFen;
+  return wasm.state.value.lines.map((line) => {
+    const sanMoves = uciLineToSan(fen, line.pvUci);
+    return {
+      ...line,
+      pvText: sanMoves.length > 0 ? sanMoves.join(" ") : line.pvUci.join(" "),
+    };
+  });
+});
+
+const activeBoardShapes = computed<CoachDrawShape[]>(() => {
+  if (!store.isFinished) return [];
+
   if (store.isWasmAnalysisEnabled) {
-    wasm.analyzeFen(store.currentFen);
-  } else {
-    wasm.stopAnalysis();
+    const chosen =
+      wasm.state.value.lines.find(
+        (l) => l.multipv === selectedSfMultipv.value
+      ) ?? wasm.state.value.lines[0];
+
+    const uci = chosen?.bestMoveUci ?? wasm.state.value.bestMoveUci;
+    const brush = chosen?.arrowBrush ?? wasm.state.value.bestMoveBrush;
+    if (!uci || uci.length < 4) return [];
+
+    return [
+      {
+        orig: uci.slice(0, 2) as Key,
+        dest: uci.slice(2, 4) as Key,
+        brush,
+        modifiers: { lineWidth: 10 },
+      },
+    ];
   }
+
+  if (store.isCoachAnalysisEnabled) {
+    return coach.drawableShapes.value;
+  }
+
+  return [];
+});
+
+function switchAnalysisTab(mode: "stockfish" | "coach") {
+  if (!store.isFinished) return;
+  store.setAnalysisMode(mode);
 }
 
 function handleReplayClick(participant: ChallengeParticipantDTO) {
@@ -77,6 +121,7 @@ function goToNextActiveChallenge() {
   const next = store.challenge?.next_active_challenge;
   if (!next) return;
   wasm.stopAnalysis();
+  coach.resetCoach();
   void router.push(
     `/challenge/${next.discipline}/${encodeURIComponent(
       next.puzzle_id
@@ -86,6 +131,9 @@ function goToNextActiveChallenge() {
 
 async function loadFromCurrentRoute() {
   wasm.stopAnalysis();
+  coach.resetCoach();
+  selectedSfMultipv.value = 1;
+
   await store.loadChallenge({
     discipline: routeParams.value.discipline,
     puzzleId: routeParams.value.puzzleId,
@@ -104,10 +152,23 @@ async function loadFromCurrentRoute() {
 }
 
 watch(
-  () => store.currentFen,
-  (fen) => {
-    if (store.isWasmAnalysisEnabled && fen) {
+  [() => store.analysisMode, () => store.currentFen],
+  ([mode, fen]) => {
+    if (!store.isFinished || !fen) {
+      wasm.stopAnalysis();
+      return;
+    }
+
+    if (mode === "stockfish") {
+      selectedSfMultipv.value = 1;
       wasm.analyzeFen(fen);
+    } else {
+      wasm.stopAnalysis();
+    }
+
+    if (mode === "coach") {
+      const ctx = store.coachPayloadContext;
+      void coach.analyzePosition(ctx.startFen, ctx.moves);
     }
   }
 );
@@ -127,15 +188,16 @@ onMounted(() => {
 onUnmounted(() => {
   store.stopTimer();
   wasm.destroyWorker();
+  coach.resetCoach();
 });
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-2xl flex-col gap-3 px-3 py-3">
+  <div class="mx-auto flex max-w-2xl flex-col gap-2.5 px-3 py-2.5">
     <!-- Challenge Top Info Bar -->
     <section
       v-if="store.challenge"
-      class="glass flex flex-wrap items-center justify-between gap-2 p-3"
+      class="glass flex flex-wrap items-center justify-between gap-2 p-2.5"
     >
       <div class="flex flex-col gap-0.5">
         <div class="flex flex-wrap items-center gap-1.5">
@@ -143,8 +205,10 @@ onUnmounted(() => {
             {{ disciplineTitle(store.challenge.discipline) }}
           </span>
           <span class="rounded border border-border bg-elevated px-1.5 py-0.5 text-[11px] font-bold text-text-secondary">
-            {{ difficultyTitle(store.challenge.difficulty) }} •
-            {{ store.challenge.bot_engine.toUpperCase() }}
+            {{ difficultyTitle(store.challenge.difficulty) }}
+            <template v-if="store.challenge.discipline !== 'tactics'">
+              • {{ store.challenge.bot_engine.toUpperCase() }}
+            </template>
           </span>
           <span class="rounded border border-border bg-elevated px-1.5 py-0.5 text-[11px] text-text-secondary">
             {{ store.challenge.category }}
@@ -155,15 +219,15 @@ onUnmounted(() => {
         </span>
       </div>
 
-      <div class="flex items-center gap-2">
-        <div class="rounded-md border border-border bg-elevated px-2.5 py-1 text-right">
-          <div class="text-[10px] text-text-secondary uppercase">SCORE</div>
+      <div class="flex items-center gap-1.5">
+        <div class="rounded-md border border-border bg-elevated px-2 py-1 text-right">
+          <div class="text-[9px] text-text-secondary uppercase">SCORE</div>
           <div class="font-condensed text-sm font-bold text-text-primary">
             {{ store.challenge.my_entry?.score_text || "0/0" }}
           </div>
         </div>
-        <div class="rounded-md border border-border bg-elevated px-2.5 py-1 text-right">
-          <div class="text-[10px] text-text-secondary uppercase">TIME</div>
+        <div class="rounded-md border border-border bg-elevated px-2 py-1 text-right">
+          <div class="text-[9px] text-text-secondary uppercase">TIME</div>
           <div class="font-condensed text-sm font-bold text-brand">
             {{ formattedTimer }}
           </div>
@@ -174,7 +238,7 @@ onUnmounted(() => {
     <!-- Status / Feedback Banner -->
     <div
       v-if="store.feedbackBanner"
-      class="rounded-lg border px-3 py-2 text-xs font-bold"
+      class="rounded-lg border px-3 py-1.5 text-xs font-bold"
       :class="
         store.feedbackBanner.type === 'success'
           ? 'border-success/40 bg-success/15 text-success'
@@ -188,7 +252,7 @@ onUnmounted(() => {
 
     <div
       v-else-if="store.challenge && !store.isFinished"
-      class="flex items-center justify-between rounded-lg border border-border bg-elevated px-3 py-2 text-xs font-semibold text-text-secondary"
+      class="flex items-center justify-between rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-semibold text-text-secondary"
     >
       <span>{{ turnIndicatorText }}</span>
       <span v-if="store.gaviotaHint" class="font-condensed text-info">
@@ -196,42 +260,7 @@ onUnmounted(() => {
       </span>
     </div>
 
-    <!-- WASM Stockfish Evaluation Bar (when active) -->
-    <div
-      v-if="store.isWasmAnalysisEnabled"
-      class="glass flex flex-col gap-1.5 p-2.5"
-    >
-      <div class="flex items-center justify-between text-xs">
-        <span class="font-bold text-highlight">
-          <template v-if="wasm.state.value.error">
-            ⚠️ {{ wasm.state.value.error }}
-          </template>
-          <template v-else-if="wasm.state.value.isLoading">
-            ⏳ Stockfish 19 Lite (загрузка...)
-          </template>
-          <template v-else>
-            Stockfish 19 Lite (d={{ wasm.state.value.depth }})
-          </template>
-        </span>
-        <span class="font-condensed text-sm font-bold text-text-primary">
-          {{ wasm.state.value.evalLabel }}
-          <span
-            v-if="wasm.state.value.bestMoveUci"
-            class="ml-1 text-xs text-brand"
-          >
-            Best: {{ wasm.state.value.bestMoveUci }}
-          </span>
-        </span>
-      </div>
-      <div class="h-2 w-full overflow-hidden rounded-full bg-eval-black">
-        <div
-          class="h-full bg-eval-white transition-all duration-200"
-          :style="{ width: `${wasm.state.value.evalWhitePercent}%` }"
-        ></div>
-      </div>
-    </div>
-
-    <!-- Interactive Chessboard -->
+    <!-- Interactive Chessboard (stable vertical position — never shifts!) -->
     <MiniChessBoard
       v-if="store.challenge"
       :fen="store.currentFen"
@@ -241,81 +270,259 @@ onUnmounted(() => {
       :last-move="store.lastMove"
       :check="store.positionSnapshot.isCheck"
       :interactive="store.isBoardInteractive"
-      :best-move-uci="
-        store.isWasmAnalysisEnabled ? wasm.state.value.bestMoveUci : null
-      "
+      :shapes="activeBoardShapes"
       @move="(uci) => store.handleUserMove(uci)"
     />
 
-    <!-- Replay Controls Bar (when viewing a participant's solution) -->
+    <!-- Single-Row Control Bar Directly Under Board -->
     <section
-      v-if="store.isReplayActive && store.replayParticipant"
-      class="glass flex flex-col gap-2 p-3"
+      v-if="store.challenge"
+      class="glass flex items-center justify-between gap-1.5 px-2 py-1.5"
     >
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-xs font-bold text-brand">
-          {{ t("challenge_replay_active") }}
-          {{ store.replayParticipant.display_name }} ({{
-            store.replayParticipant.score_text
-          }})
+      <!-- Active Solving Mode Controls -->
+      <template v-if="!store.isFinished">
+        <button
+          type="button"
+          class="flex-1 rounded-md border border-danger/40 bg-elevated px-3 py-1.5 text-xs font-bold text-danger transition hover:border-danger"
+          @click="store.surrenderChallenge()"
+        >
+          🏳️ {{ t("challenge_surrender_btn") }}
+        </button>
+
+        <button
+          type="button"
+          class="rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-bold text-brand transition hover:border-brand"
+          @click="
+            router.push(
+              `/challenge/records/${encodeURIComponent(store.challenge.chat_id)}`
+            )
+          "
+        >
+          🏆 {{ t("cabinet_open_records") }}
+        </button>
+      </template>
+
+      <!-- Finished / Analysis Mode Single-Row Toolbar: [Stockfish] [Coach] | [|< < > >>] | [🏆 Рекорды] -->
+      <template v-else>
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="rounded border px-2 py-1 text-[11px] font-bold tracking-tight uppercase transition"
+            :class="
+              store.isWasmAnalysisEnabled
+                ? 'border-highlight bg-highlight/20 text-highlight'
+                : 'border-border bg-elevated text-text-secondary hover:text-text-primary'
+            "
+            @click="switchAnalysisTab('stockfish')"
+          >
+            {{ t("challenge_wasm_btn") }}
+          </button>
+
+          <button
+            type="button"
+            class="rounded border px-2 py-1 text-[11px] font-bold tracking-tight uppercase transition"
+            :class="
+              store.isCoachAnalysisEnabled
+                ? 'border-brand bg-brand/20 text-brand'
+                : 'border-border bg-elevated text-text-secondary hover:text-text-primary'
+            "
+            @click="switchAnalysisTab('coach')"
+          >
+            {{ t("challenge_coach_btn") }}
+          </button>
+        </div>
+
+        <!-- Compact Single-Row Move Navigation |< < > >> -->
+        <div class="inline-flex items-center rounded-md border border-border bg-elevated p-0.5">
+          <button
+            type="button"
+            class="flex h-6 w-7 items-center justify-center rounded font-mono text-[11px] font-bold transition disabled:opacity-35"
+            :class="
+              store.canStepPrev
+                ? 'text-text-primary hover:bg-surface'
+                : 'text-text-disabled'
+            "
+            :disabled="!store.canStepPrev"
+            aria-label="First move"
+            @click="store.goToFirstStep()"
+          >
+            |&lt;
+          </button>
+          <button
+            type="button"
+            class="flex h-6 w-6.5 items-center justify-center rounded font-mono text-[12px] font-bold transition disabled:opacity-35"
+            :class="
+              store.canStepPrev
+                ? 'text-text-primary hover:bg-surface'
+                : 'text-text-disabled'
+            "
+            :disabled="!store.canStepPrev"
+            aria-label="Previous move"
+            @click="store.stepBackward()"
+          >
+            &lt;
+          </button>
+          <button
+            type="button"
+            class="flex h-6 w-6.5 items-center justify-center rounded font-mono text-[12px] font-bold transition disabled:opacity-35"
+            :class="
+              store.canStepNext
+                ? 'text-text-primary hover:bg-surface'
+                : 'text-text-disabled'
+            "
+            :disabled="!store.canStepNext"
+            aria-label="Next move"
+            @click="store.stepForward()"
+          >
+            &gt;
+          </button>
+          <button
+            type="button"
+            class="flex h-6 w-7 items-center justify-center rounded font-mono text-[11px] font-bold transition disabled:opacity-35"
+            :class="
+              store.canStepNext
+                ? 'text-text-primary hover:bg-surface'
+                : 'text-text-disabled'
+            "
+            :disabled="!store.canStepNext"
+            aria-label="Last move"
+            @click="store.goToLastStep()"
+          >
+            &gt;&gt;
+          </button>
+        </div>
+
+        <button
+          type="button"
+          class="shrink-0 rounded border border-border bg-elevated px-2 py-1 text-[11px] font-bold text-brand transition hover:border-brand"
+          @click="
+            router.push(
+              `/challenge/records/${encodeURIComponent(store.challenge.chat_id)}`
+            )
+          "
+        >
+          🏆 {{ t("cabinet_open_records") }}
+        </button>
+      </template>
+    </section>
+
+    <!-- Single-Line Horizontal PGN / Replay Strip (never expands vertically!) -->
+    <div
+      v-if="store.isFinished && store.timelineSteps.length > 1"
+      class="glass flex items-center gap-1.5 overflow-x-auto px-2.5 py-1 text-xs whitespace-nowrap"
+    >
+      <template v-if="store.isReplayActive && store.replayParticipant">
+        <span class="shrink-0 rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand">
+          ▶ {{ store.replayParticipant.display_name }}
         </span>
         <button
           type="button"
-          class="rounded border border-border bg-elevated px-2.5 py-1 text-xs font-semibold text-text-primary hover:border-brand"
+          class="shrink-0 rounded border border-border bg-elevated px-1.5 py-0.5 text-[10px] font-bold text-text-secondary hover:text-text-primary"
           @click="store.exitParticipantReplay()"
         >
-          {{ t("challenge_exit_replay") }}
+          ✕
         </button>
+      </template>
+
+      <button
+        v-for="step in store.timelineSteps.slice(1)"
+        :key="step.stepIndex"
+        type="button"
+        class="shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-bold transition"
+        :class="
+          store.timelineCursor === step.stepIndex
+            ? 'bg-brand text-on-brand'
+            : 'bg-elevated text-text-secondary hover:text-text-primary'
+        "
+        @click="store.setTimelineStep(step.stepIndex)"
+      >
+        {{ step.stepIndex }}.{{ step.san }}
+      </button>
+    </div>
+
+    <!-- Stockfish MultiPV = 3 Panel (Below Controls — Zero Board Shift!) -->
+    <section
+      v-if="store.isWasmAnalysisEnabled"
+      class="glass flex flex-col gap-1.5 p-2.5"
+    >
+      <div class="flex items-center justify-between text-xs">
+        <span class="font-bold text-highlight">
+          <template v-if="wasm.state.value.error">
+            ⚠️ {{ wasm.state.value.error }}
+          </template>
+          <template v-else-if="wasm.state.value.isLoading">
+            ⏳ Stockfish 19 Lite...
+          </template>
+          <template v-else>
+            Stockfish 19 Lite (d={{ wasm.state.value.depth }})
+          </template>
+        </span>
+        <span class="font-condensed text-sm font-bold text-text-primary">
+          {{ wasm.state.value.evalLabel }}
+        </span>
       </div>
 
-      <div class="flex flex-wrap items-center gap-1.5 text-xs">
+      <div class="h-1.5 w-full overflow-hidden rounded-full bg-eval-black">
+        <div
+          class="h-full bg-eval-white transition-all duration-200"
+          :style="{ width: `${wasm.state.value.evalWhitePercent}%` }"
+        ></div>
+      </div>
+
+      <!-- 3 MultiPV Lines with Win/Draw/Loss Evaluation Colors -->
+      <div v-if="formattedSfLines.length > 0" class="mt-0.5 flex flex-col gap-1">
         <button
-          v-for="step in store.replayTimeline.slice(1)"
-          :key="step.stepIndex"
+          v-for="line in formattedSfLines"
+          :key="line.multipv"
           type="button"
-          class="rounded px-2 py-1 font-condensed font-bold transition"
+          class="flex w-full items-center gap-2 rounded border px-2 py-1 text-left text-xs transition"
           :class="
-            store.replayStepIndex === step.stepIndex
-              ? 'bg-brand text-on-brand'
-              : 'bg-elevated text-text-secondary hover:text-text-primary'
+            selectedSfMultipv === line.multipv
+              ? 'border-border-hover bg-elevated'
+              : 'border-border/60 bg-surface hover:border-border-hover'
           "
-          @click="store.setReplayStep(step.stepIndex)"
+          @click="selectedSfMultipv = line.multipv"
         >
-          {{ step.stepIndex }}. {{ step.san }}
-        </button>
-      </div>
-
-      <div class="grid grid-cols-4 gap-2 pt-1">
-        <button
-          type="button"
-          class="rounded-md border border-border bg-elevated py-1.5 text-xs font-bold text-text-primary"
-          @click="store.setReplayStep(0)"
-        >
-          |&lt;&lt;
-        </button>
-        <button
-          type="button"
-          class="rounded-md border border-border bg-elevated py-1.5 text-xs font-bold text-text-primary"
-          @click="store.setReplayStep(store.replayStepIndex - 1)"
-        >
-          &lt;
-        </button>
-        <button
-          type="button"
-          class="rounded-md border border-border bg-elevated py-1.5 text-xs font-bold text-text-primary"
-          @click="store.setReplayStep(store.replayStepIndex + 1)"
-        >
-          &gt;
-        </button>
-        <button
-          type="button"
-          class="rounded-md border border-border bg-elevated py-1.5 text-xs font-bold text-text-primary"
-          @click="store.setReplayStep(store.replayTimeline.length - 1)"
-        >
-          &gt;&gt;|
+          <span class="w-3 shrink-0 font-mono text-[10px] font-bold text-text-secondary">
+            {{ line.multipv }}.
+          </span>
+          <span
+            class="w-12 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-[11px] font-bold"
+            :class="
+              line.arrowBrush === 'green'
+                ? 'bg-success/15 text-success'
+                : line.arrowBrush === 'red'
+                  ? 'bg-danger/15 text-danger'
+                  : 'bg-info/15 text-info'
+            "
+          >
+            {{ line.evalLabel }}
+          </span>
+          <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary">
+            {{ line.pvText }}
+          </span>
         </button>
       </div>
     </section>
+
+    <!-- Compact Coach Panel (Below Controls — 100% app_vue visual_commands compatible) -->
+    <CompactCoachPanel
+      v-if="store.isCoachAnalysisEnabled"
+      :is-analyzing="coach.isAnalyzing.value"
+      :error="coach.error.value"
+      :side-to-move="coach.sideToMove.value"
+      :phase="coach.phase.value"
+      :material-delta="coach.materialDelta.value"
+      :opening-name="coach.openingName.value"
+      :last-move-analysis="coach.lastMoveAnalysis.value"
+      :last-move-consequence="coach.lastMoveConsequence.value"
+      :pos-explanation="coach.posExplanation.value"
+      :top-moves="coach.topMoves.value"
+      :selected-move-index="coach.selectedMoveIndex.value"
+      :show-visuals="coach.showVisuals.value"
+      @select-move="(idx) => coach.selectMove(idx)"
+      @toggle-visuals="coach.toggleVisuals()"
+    />
 
     <!-- Bonus: Next Active Challenge Button -->
     <button
@@ -334,62 +541,8 @@ onUnmounted(() => {
       {{ store.challenge.remaining_active_count }})
     </button>
 
-    <!-- Action Bar (Surrender / Local WASM Stockfish / Club Leaderboard) -->
-    <section v-if="store.challenge" class="flex flex-wrap items-center gap-2">
-      <button
-        v-if="!store.isFinished"
-        type="button"
-        class="flex-1 rounded-lg border border-danger/40 bg-elevated px-3 py-2 text-xs font-bold text-danger transition hover:border-danger"
-        @click="store.surrenderChallenge()"
-      >
-        🏳️ {{ t("challenge_surrender_btn") }}
-      </button>
-
-      <button
-        v-if="store.isFinished"
-        type="button"
-        class="flex-1 rounded-lg border px-3 py-2 text-xs font-bold transition"
-        :class="
-          store.isWasmAnalysisEnabled
-            ? 'border-highlight bg-highlight/20 text-highlight'
-            : 'border-border bg-elevated text-text-primary hover:border-highlight'
-        "
-        @click="toggleWasmEngine"
-      >
-        🔬 {{ t("challenge_wasm_btn") }}
-      </button>
-
-      <button
-        type="button"
-        class="rounded-lg border border-border bg-elevated px-3 py-2 text-xs font-bold text-text-primary transition hover:border-brand hover:text-brand"
-        @click="
-          router.push(
-            `/records/${store.challenge.discipline}/${encodeURIComponent(
-              store.challenge.puzzle_id
-            )}/${encodeURIComponent(
-              store.challenge.edition
-            )}/${encodeURIComponent(store.challenge.chat_id)}`
-          )
-        "
-      >
-        📋 Задача
-      </button>
-
-      <button
-        type="button"
-        class="rounded-lg border border-border bg-elevated px-3 py-2 text-xs font-bold text-brand transition hover:border-brand"
-        @click="
-          router.push(
-            `/challenge/records/${encodeURIComponent(store.challenge.chat_id)}`
-          )
-        "
-      >
-        🏆 {{ t("cabinet_open_records") }}
-      </button>
-    </section>
-
     <!-- Per-Challenge Live Leaderboard -->
-    <section v-if="store.challenge" class="glass flex flex-col gap-2 p-3.5">
+    <section v-if="store.challenge" class="glass flex flex-col gap-2 p-3">
       <div class="flex items-center justify-between">
         <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
           {{ t("challenge_leaderboard_title") }} ({{
@@ -455,4 +608,3 @@ onUnmounted(() => {
     </section>
   </div>
 </template>
-
