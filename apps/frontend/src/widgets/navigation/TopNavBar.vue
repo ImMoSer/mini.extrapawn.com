@@ -80,6 +80,19 @@ function toggleLanguage() {
       </button>
 
       <button
+        type="button"
+        class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition"
+        :class="
+          route.path === '/about'
+            ? 'bg-elevated text-brand border border-brand/40'
+            : 'text-text-secondary hover:text-text-primary'
+        "
+        @click="router.push('/about')"
+      >
+        ℹ️ {{ t("nav_about") }}
+      </button>
+
+      <button
         v-if="cabinetStore.isSuperadmin"
         type="button"
         class="shrink-0 rounded-md px-3 py-1.5 text-xs font-bold transition"

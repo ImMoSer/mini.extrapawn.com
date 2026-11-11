@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import AboutPage from "@/pages/about/AboutPage.vue";
 import CabinetPage from "@/pages/cabinet/CabinetPage.vue";
 import ChallengePlayPage from "@/pages/challenge/ChallengePlayPage.vue";
 import ClubsLeaderboardPage from "@/pages/clubs/ClubsLeaderboardPage.vue";
@@ -29,6 +30,11 @@ export const router = createRouter({
       path: "/go",
       name: "go-challenges",
       component: GoChallengesPage,
+    },
+    {
+      path: "/about",
+      name: "about",
+      component: AboutPage,
     },
     {
       path: "/challenge/records/:chatId",

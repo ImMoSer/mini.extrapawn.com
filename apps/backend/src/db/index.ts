@@ -17,16 +17,19 @@ export async function ensureTeleAppSchemaAndSeed(): Promise<void> {
     CREATE SCHEMA IF NOT EXISTS tele_app;
 
     CREATE TABLE IF NOT EXISTS tele_app.users (
-      telegram_id   BIGINT PRIMARY KEY,
-      username      TEXT,
-      first_name    TEXT NOT NULL,
-      last_name     TEXT,
-      avatar_url    TEXT,
-      language_code TEXT NOT NULL DEFAULT 'ru',
-      is_superadmin BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      telegram_id       BIGINT PRIMARY KEY,
+      username          TEXT,
+      first_name        TEXT NOT NULL,
+      last_name         TEXT,
+      avatar_url        TEXT,
+      language_code     TEXT NOT NULL DEFAULT 'ru',
+      is_superadmin     BOOLEAN NOT NULL DEFAULT FALSE,
+      terms_accepted_at TIMESTAMPTZ,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE tele_app.users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS tele_app.clubs (
       chat_id                BIGINT PRIMARY KEY,

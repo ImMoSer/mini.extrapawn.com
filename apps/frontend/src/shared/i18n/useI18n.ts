@@ -13,6 +13,7 @@ const DICT = {
     nav_cabinet: "Кабинет",
     nav_clubs: "Клубы",
     nav_go: "GO",
+    nav_about: "О нас",
     nav_records: "Рекорды",
     nav_settings: "Настройки",
     nav_superadmin: "BOSS",
@@ -130,11 +131,71 @@ const DICT = {
     settings_disconnect_btn: "🗑 Отключить бота и удалить данные клуба",
     settings_disconnect_confirm:
       "Вы уверены? Бот выйдет из чата, и все данные клуба будут полностью удалены из базы данных.",
+    clubs_rule_1:
+      "Группа должна быть Супергруппой (от 30 участников) с включенными Темами (Topics) — бот создаст свою тему «ExtraPawnTeleBot».",
+    clubs_rule_2:
+      "В теме бота публикуются шахматные челленджи, рекорды клуба и редкие анонсы проекта ExtraPawn.",
+    clubs_rule_3:
+      "Вы в любой момент можете поставить бота на паузу или полностью удалить все данные клуба из нашей базы одной кнопкой в настройках.",
+    clubs_terms_prefix:
+      "Я администратор супергруппы, прочитал(а) и согласен(на) с",
+    clubs_terms_link: "Условиями использования",
+    clubs_terms_mid: "и",
+    clubs_privacy_link: "Политикой конфиденциальности",
+    clubs_terms_suffix: "@ExtraPawnTeleBot.",
+    consent_title: "Добро пожаловать в ExtraPawn!",
+    consent_subtitle:
+      "Перед началом ознакомьтесь с краткими правилами нашего шахматного сообщества:",
+    consent_p1_title: "1. Бесплатно и добровольно («Как есть»)",
+    consent_p1_text:
+      "Приложение полностью бесплатное. Мы не берем плату за функции и не несем ответственности за сбои серверов или работу самого мессенджера Telegram.",
+    consent_p2_title: "2. Какие данные хранятся",
+    consent_p2_text:
+      "Мы сохраняем только ваш публичный профиль Telegram (ID, имя, @username) и историю решения шахматных челленджей для подсчета клубного рейтинга.",
+    consent_p3_title: "3. Управление данными",
+    consent_p3_text:
+      "Вы используете приложение добровольно в среде Telegram и можете в любой момент запросить полное удаление своих данных.",
+    consent_check_prefix: "Я прочитал(а) и принимаю",
+    consent_terms_link: "Условия использования",
+    consent_check_mid: "и",
+    consent_privacy_link: "Политику конфиденциальности",
+    consent_check_suffix: "",
+    consent_imprint_link: "Impressum",
+    consent_continue_btn: "Продолжить",
+    about_title: "О ПРОЕКТЕ EXTRAPAWN CHALLENGES",
+    about_subtitle:
+      "Межклубный шахматный чемпионат в Telegram и 100% бесплатная тренировочная экосистема",
+    about_sec1_title: "♟ Как устроен чемпионат клубов",
+    about_sec1_p1:
+      "ExtraPawn объединяет шахматные супергруппы в едином 30-дневном зачете по 4 дисциплинам: Тактика, Теория эндшпиля, Практический эндшпиль и Добивание (Finish Him).",
+    about_sec1_p2:
+      "Формула честного начисления очков за каждый решенный челлендж: 1 / попытки (с 1-й попытки = 1.0 очка, со 2-й = 0.5, с 3-й = 0.33). После решения или сдачи открывается встроенный движок Stockfish, тренер Coach и просмотр партий одноклубников.",
+    about_web_cta: "🌐 Открыть платформу ExtraPawn.com ↗",
+    about_sec2_title: "🛡 Правила и данные простым языком",
+    about_sec2_p1:
+      "• 100% Бесплатно («Как есть»): все функции доступны без платных подписок. Разработчик не несет ответственности за перебои серверов или инфраструктуру Telegram.",
+    about_sec2_p2:
+      "• Минимум данных (Privacy by Design): хранятся только публичные метаданные профиля Telegram (ID, имя, @username) и попытки решения задач.",
+    about_sec2_p3:
+      "• Удаление в 1 клик: администратор любого клуба может в любой момент отключить бота и безвозвратно удалить все данные клуба в настройках. Личную статистику можно удалить по запросу.",
+    about_sec3_title: "⚡ Open Source & Благодарности (GPLv3)",
+    about_sec3_p1:
+      "Проект построен с использованием открытых шахматных технологий: движок Stockfish (лицензия GNU GPLv3), открытая база задач и эндшпилей Lichess Open Database, человекоподобные нейросети Maia (1500 / 2200) и система спарринга MOZERO (LCZero + таблицы Syzygy).",
+    about_sec4_title: "☕ Поддержать проект (Добровольный донат)",
+    about_sec4_desc:
+      "Платформа полностью бесплатна для всех игроков и клубов. Если вам нравится проект, вы можете добровольно угостить разработчика кофе на поддержку серверов:",
+    about_donate_btn: "☕ Угостить разработчика кофе (Buy Me a Coffee)",
+    about_contact_btn: "💬 Связаться с разработчиком (@ProfessorMozer)",
+    about_sec5_title: "⚖️ Официальные правовые документы",
+    about_link_imprint: "Impressum / Выходные данные",
+    about_link_privacy: "Datenschutz / Конфиденциальность",
+    about_link_terms: "Nutzungsbedingungen / Условия (AGB)",
   },
   en: {
     nav_cabinet: "Cabinet",
     nav_clubs: "Clubs",
     nav_go: "GO",
+    nav_about: "About",
     nav_records: "Records",
     nav_settings: "Settings",
     nav_superadmin: "BOSS",
@@ -252,11 +313,71 @@ const DICT = {
     settings_disconnect_btn: "🗑 Disconnect Bot & Delete Club Data",
     settings_disconnect_confirm:
       "Are you sure? The bot will leave the chat and all club data will be permanently deleted from the database.",
+    clubs_rule_1:
+      "The group must be a Supergroup (30+ members) with Topics enabled — the bot will create its own topic 'ExtraPawnTeleBot'.",
+    clubs_rule_2:
+      "Chess challenges, club leaderboards, and occasional ExtraPawn project announcements are posted in the bot topic.",
+    clubs_rule_3:
+      "You can pause the bot at any time or permanently delete all club data from our database with one click in settings.",
+    clubs_terms_prefix:
+      "I am an admin of the supergroup and have read and agree to the",
+    clubs_terms_link: "Terms of Use",
+    clubs_terms_mid: "and",
+    clubs_privacy_link: "Privacy Policy",
+    clubs_terms_suffix: "of @ExtraPawnTeleBot.",
+    consent_title: "Welcome to ExtraPawn!",
+    consent_subtitle:
+      "Before starting, please review the brief rules of our chess community:",
+    consent_p1_title: "1. Free & Voluntary (\"As Is\")",
+    consent_p1_text:
+      "The app is 100% free. We do not charge for features and assume no liability for server outages or the operation of the Telegram messenger itself.",
+    consent_p2_title: "2. What Data Is Stored",
+    consent_p2_text:
+      "We only store your public Telegram profile (ID, first name, @username) and your chess challenge solving history to calculate club rankings.",
+    consent_p3_title: "3. Data Control",
+    consent_p3_text:
+      "You use the app voluntarily within Telegram and can request the complete deletion of your data at any time.",
+    consent_check_prefix: "I have read and accept the",
+    consent_terms_link: "Terms of Use",
+    consent_check_mid: "and",
+    consent_privacy_link: "Privacy Policy",
+    consent_check_suffix: "",
+    consent_imprint_link: "Imprint",
+    consent_continue_btn: "Continue",
+    about_title: "ABOUT EXTRAPAWN CHALLENGES",
+    about_subtitle:
+      "Inter-club chess championship in Telegram & 100% free training ecosystem",
+    about_sec1_title: "♟ How the Club Championship Works",
+    about_sec1_p1:
+      "ExtraPawn unites chess supergroups in a rolling 30-day championship across 4 disciplines: Tactics, Theoretical Endgame, Practical Endgame, and Finish Him.",
+    about_sec1_p2:
+      "Fair scoring formula for every solved challenge: 1 / attempts (1st try = 1.0 pt, 2nd = 0.5, 3rd = 0.33). After solving or surrendering, built-in Stockfish analysis, Coach hints, and clubmates' move replays are unlocked.",
+    about_web_cta: "🌐 Open ExtraPawn.com Platform ↗",
+    about_sec2_title: "🛡 Plain-Language Rules & Privacy",
+    about_sec2_p1:
+      "• 100% Free (\"As Is\"): all features are available without paid subscriptions. The developer assumes no liability for server downtime or Telegram infrastructure.",
+    about_sec2_p2:
+      "• Minimal Data (Privacy by Design): we only store public Telegram profile metadata (ID, name, @username) and puzzle attempt results.",
+    about_sec2_p3:
+      "• 1-Click Deletion: any club admin can disconnect the bot and permanently delete all club data in settings at any time. Personal stats can be deleted upon request.",
+    about_sec3_title: "⚡ Open Source & Credits (GPLv3)",
+    about_sec3_p1:
+      "Built with open-source chess technologies: Stockfish engine (GNU GPLv3), Lichess Open Database, human-like Maia neural networks (1500 / 2200), and the MOZERO sparring system (LCZero + Syzygy tablebases).",
+    about_sec4_title: "☕ Support the Project (Voluntary Donation)",
+    about_sec4_desc:
+      "The platform is 100% free for all players and clubs. If you enjoy ExtraPawn, you can voluntarily buy the developer a coffee to help cover server costs:",
+    about_donate_btn: "☕ Buy the Developer a Coffee (Buy Me a Coffee)",
+    about_contact_btn: "💬 Contact Developer (@ProfessorMozer)",
+    about_sec5_title: "⚖️ Official Legal Documents",
+    about_link_imprint: "Imprint / Impressum",
+    about_link_privacy: "Privacy Policy / Datenschutz",
+    about_link_terms: "Terms of Use / AGB",
   },
   de: {
     nav_cabinet: "Profil",
     nav_clubs: "Klubs",
     nav_go: "GO",
+    nav_about: "Info",
     nav_records: "Rekorde",
     nav_settings: "Einstellungen",
     nav_superadmin: "BOSS",
@@ -374,6 +495,65 @@ const DICT = {
     settings_disconnect_btn: "🗑 Bot trennen & Klubdaten löschen",
     settings_disconnect_confirm:
       "Sind Sie sicher? Der Bot verlässt den Chat und alle Klubdaten werden vollständig aus der Datenbank gelöscht.",
+    clubs_rule_1:
+      "Die Gruppe muss eine Supergruppe (ab 30 Mitgliedern) mit aktivierten Themen (Topics) sein — der Bot erstellt sein eigenes Thema „ExtraPawnTeleBot“.",
+    clubs_rule_2:
+      "Im Bot-Thema werden Schach-Challenges, Klub-Rekorde und gelegentliche Ankündigungen des Projekts ExtraPawn veröffentlicht.",
+    clubs_rule_3:
+      "Sie können den Bot jederzeit pausieren oder alle Klubdaten mit einem Klick in den Einstellungen vollständig aus unserer Datenbank löschen.",
+    clubs_terms_prefix:
+      "Ich bin Administrator der Supergruppe, habe die",
+    clubs_terms_link: "Nutzungsbedingungen",
+    clubs_terms_mid: "und die",
+    clubs_privacy_link: "Datenschutzerklärung",
+    clubs_terms_suffix: "von @ExtraPawnTeleBot gelesen und stimme ihnen zu.",
+    consent_title: "Willkommen bei ExtraPawn!",
+    consent_subtitle:
+      "Bitte bestätigen Sie kurz die Regeln unserer Schach-Community:",
+    consent_p1_title: "1. Kostenlos & Freiwillig („Wie besehen“)",
+    consent_p1_text:
+      "Die App ist zu 100 % kostenlos. Wir erheben keine Gebühren für Funktionen und übernehmen keine Haftung für Serverausfälle oder den Betrieb des Messengers Telegram.",
+    consent_p2_title: "2. Welche Daten gespeichert werden",
+    consent_p2_text:
+      "Wir speichern lediglich Ihr öffentliches Telegram-Profil (ID, Vorname, @username) und Ihre Challenge-Ergebnisse zur Berechnung der Klub-Rangliste.",
+    consent_p3_title: "3. Kontrolle über Ihre Daten",
+    consent_p3_text:
+      "Sie nutzen die App freiwillig in Telegram und können jederzeit die vollständige Löschung Ihrer Daten anfordern.",
+    consent_check_prefix: "Ich habe die",
+    consent_terms_link: "Nutzungsbedingungen",
+    consent_check_mid: "und die",
+    consent_privacy_link: "Datenschutzerklärung",
+    consent_check_suffix: "gelesen und akzeptiere sie",
+    consent_imprint_link: "Impressum",
+    consent_continue_btn: "Weiter",
+    about_title: "ÜBER EXTRAPAWN CHALLENGES",
+    about_subtitle:
+      "Inter-Klub Schachmeisterschaft in Telegram & 100 % kostenloses Trainings-Ökosystem",
+    about_sec1_title: "♟ Wie die Klub-Meisterschaft funktioniert",
+    about_sec1_p1:
+      "ExtraPawn verbindet Schach-Supergruppen in einer rollierenden 30-Tage-Wertung über 4 Disziplinen: Taktik, Endspieltheorie, Praktisches Endspiel und Finish Him.",
+    about_sec1_p2:
+      "Faire Punkteformel pro gelöster Challenge: 1 / Versuche (1. Versuch = 1.0 Pkt., 2. = 0.5, 3. = 0.33). Nach Lösung oder Aufgabe werden die integrierte Stockfish-Analyse, der Coach und die Züge der Klubmitglieder freigeschaltet.",
+    about_web_cta: "🌐 Plattform ExtraPawn.com öffnen ↗",
+    about_sec2_title: "🛡 Regeln & Datenschutz einfach erklärt",
+    about_sec2_p1:
+      "• 100 % Kostenlos („As Is“): Alle Funktionen sind ohne Bezahlung verfügbar. Der Entwickler haftet nicht für Serverausfälle oder die Telegram-Infrastruktur.",
+    about_sec2_p2:
+      "• Minimale Daten (Privacy by Design): Gespeichert werden nur öffentliche Telegram-Profildaten (ID, Name, @username) und Lösungsversuche.",
+    about_sec2_p3:
+      "• 1-Klick-Löschung: Klub-Admins können den Bot jederzeit trennen und alle Klubdaten in den Einstellungen unwiderruflich löschen. Persönliche Daten werden auf Anfrage gelöscht.",
+    about_sec3_title: "⚡ Open Source & Danksagung (GPLv3)",
+    about_sec3_p1:
+      "Entwickelt mit Open-Source-Schachtechnologien: Stockfish Engine (GNU GPLv3), Lichess Open Database, menschenähnliche Maia-Neuronalnetze (1500 / 2200) und das Sparring-System MOZERO (LCZero + Syzygy Tablebases).",
+    about_sec4_title: "☕ Projekt unterstützen (Freiwillige Spende)",
+    about_sec4_desc:
+      "Die Plattform ist für alle Spieler und Klubs komplett kostenlos. Wenn Ihnen das Projekt gefällt, können Sie dem Entwickler freiwillig einen Kaffee zur Unterstützung der Serverkosten spendieren:",
+    about_donate_btn: "☕ Entwickler einen Kaffee spendieren (Buy Me a Coffee)",
+    about_contact_btn: "💬 Entwickler kontaktieren (@ProfessorMozer)",
+    about_sec5_title: "⚖️ Offizielle Rechtsdokumente",
+    about_link_imprint: "Impressum",
+    about_link_privacy: "Datenschutzerklärung",
+    about_link_terms: "Nutzungsbedingungen (AGB)",
   },
 } as const;
 

@@ -6,6 +6,7 @@ import {
   getInitialDeepLinkRoute,
   initTelegramWebApp,
 } from "@/shared/lib/telegram";
+import FirstLaunchConsentModal from "@/widgets/consent/FirstLaunchConsentModal.vue";
 import TopNavBar from "@/widgets/navigation/TopNavBar.vue";
 
 const router = useRouter();
@@ -28,6 +29,7 @@ onMounted(async () => {
     <main class="pb-20">
       <RouterView />
     </main>
+    <FirstLaunchConsentModal />
   </div>
 </template>
 

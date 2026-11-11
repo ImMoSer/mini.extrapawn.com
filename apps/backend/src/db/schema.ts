@@ -35,6 +35,7 @@ export const users = teleAppSchema.table("users", {
   avatarUrl: text("avatar_url"),
   languageCode: text("language_code").notNull().default("ru"),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
+  termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

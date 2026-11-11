@@ -9,6 +9,13 @@ export const DEFAULT_CLUB_TITLE = "EXTRAPAWNCLUB";
 export const DEFAULT_CLUB_INVITE_URL = "https://t.me/EXTRAPAWNCLUB/1";
 export const MAX_OWNED_CLUBS_PER_USER = 2;
 
+export const EXTRAPAWN_WEB_URL = "https://extrapawn.com";
+export const LEGAL_IMPRINT_URL = "https://extrapawn.com/legal#imprint";
+export const LEGAL_PRIVACY_URL = "https://extrapawn.com/legal#privacy";
+export const LEGAL_TERMS_URL = "https://extrapawn.com/legal#terms";
+export const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/extrapawn.com";
+export const DEVELOPER_TG_URL = "https://t.me/ProfessorMozer";
+
 export type AppLanguage = "ru" | "en" | "de";
 
 export const OFFICIAL_CLUB_INVITE_URLS: Record<AppLanguage, string> = {
@@ -583,6 +590,7 @@ export interface TeleUserDTO {
   avatar_url: string | null;
   language_code: AppLanguage;
   is_superadmin: boolean;
+  terms_accepted_at: string | null;
   created_at: string;
 }
 

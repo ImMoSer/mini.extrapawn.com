@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   getOfficialClubInviteUrl,
+  LEGAL_PRIVACY_URL,
+  LEGAL_TERMS_URL,
   type ClubsCompetitionResponseDTO,
 } from "shared";
 import { useCabinetStore } from "@/entities/cabinet/model/cabinet.store";
@@ -267,15 +269,51 @@ onMounted(() => {
       </div>
 
       <template v-else>
+        <!-- 3 Concise Onboarding Rules -->
+        <ul
+          class="flex flex-col gap-1.5 rounded-lg border border-border bg-elevated/60 p-3 text-xs leading-relaxed text-text-secondary"
+        >
+          <li class="flex items-start gap-2">
+            <span class="font-bold text-brand">•</span>
+            <span>{{ t("clubs_rule_1") }}</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="font-bold text-brand">•</span>
+            <span>{{ t("clubs_rule_2") }}</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="font-bold text-brand">•</span>
+            <span>{{ t("clubs_rule_3") }}</span>
+          </li>
+        </ul>
+
         <label
-          class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-elevated p-3 text-xs text-text-secondary"
+          class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-elevated p-3 text-xs leading-relaxed text-text-secondary"
         >
           <input
             v-model="termsAccepted"
             type="checkbox"
-            class="mt-0.5 h-4 w-4 accent-brand"
+            class="mt-0.5 h-4 w-4 shrink-0 accent-brand"
           />
-          <span>{{ t("cabinet_terms_checkbox") }}</span>
+          <span>
+            {{ t("clubs_terms_prefix") }}
+            <button
+              type="button"
+              class="font-semibold text-brand underline hover:opacity-80"
+              @click.stop="openTelegramUrl(LEGAL_TERMS_URL)"
+            >
+              {{ t("clubs_terms_link") }}
+            </button>
+            {{ t("clubs_terms_mid") }}
+            <button
+              type="button"
+              class="font-semibold text-brand underline hover:opacity-80"
+              @click.stop="openTelegramUrl(LEGAL_PRIVACY_URL)"
+            >
+              {{ t("clubs_privacy_link") }}
+            </button>
+            {{ t("clubs_terms_suffix") }}
+          </span>
         </label>
 
         <button

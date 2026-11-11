@@ -202,6 +202,9 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
         language_code: ((userRow?.languageCode ||
           viewer.languageCode) as AppLanguage) || "ru",
         is_superadmin: viewer.isSuperadmin,
+        terms_accepted_at: userRow?.termsAcceptedAt
+          ? userRow.termsAcceptedAt.toISOString()
+          : null,
         created_at: userRow?.createdAt
           ? userRow.createdAt.toISOString()
           : new Date().toISOString(),
@@ -236,6 +239,20 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(users.telegramId, req.user.telegramId));
 
       return { ok: true, language_code: lang };
+    }
+  );
+
+  fastify.post(
+    "/cabinet/accept-terms",
+    { preHandler: [fastify.authenticate] },
+    async (req) => {
+      const now = new Date();
+      await db
+        .update(users)
+        .set({ termsAcceptedAt: now, updatedAt: now })
+        .where(eq(users.telegramId, req.user.telegramId));
+
+      return { ok: true, terms_accepted_at: now.toISOString() };
     }
   );
 };

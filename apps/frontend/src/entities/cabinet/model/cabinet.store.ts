@@ -10,15 +10,27 @@ import {
 import { apiRequest } from "@/shared/api/httpClient";
 import { useI18n } from "@/shared/i18n/useI18n";
 
+const TERMS_LOCAL_STORAGE_KEY = "extrapawn_mini_terms_accepted_v1";
+
 export const useCabinetStore = defineStore("cabinet", () => {
   const data = ref<UserCabinetDTO | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const selectedChatId = ref<string>(DEFAULT_CLUB_CHAT_ID);
+  const localTermsAccepted = ref<boolean>(
+    typeof window !== "undefined" &&
+      Boolean(window.localStorage.getItem(TERMS_LOCAL_STORAGE_KEY))
+  );
   const { setLanguage } = useI18n();
 
   const currentUser = computed(() => data.value?.user ?? null);
   const isSuperadmin = computed(() => Boolean(data.value?.user.is_superadmin));
+  const isTermsAccepted = computed(() => {
+    if (data.value?.user) {
+      return Boolean(data.value.user.terms_accepted_at);
+    }
+    return localTermsAccepted.value;
+  });
   const history = computed(() => data.value?.history ?? []);
   const clubs = computed(() => data.value?.clubs ?? []);
   const myClubs = computed(
@@ -45,6 +57,17 @@ export const useCabinetStore = defineStore("cabinet", () => {
       data.value = res;
       if (res.user.language_code) {
         setLanguage(res.user.language_code);
+      }
+      if (res.user.terms_accepted_at) {
+        localTermsAccepted.value = true;
+        try {
+          window.localStorage.setItem(
+            TERMS_LOCAL_STORAGE_KEY,
+            res.user.terms_accepted_at
+          );
+        } catch {
+          // Ignore storage write error
+        }
       }
       if (
         !res.clubs.some((c) => c.chat_id === selectedChatId.value) &&
@@ -100,6 +123,27 @@ export const useCabinetStore = defineStore("cabinet", () => {
     }
   }
 
+  async function acceptTerms(): Promise<void> {
+    const res = await apiRequest<{ ok: true; terms_accepted_at: string }>(
+      "/cabinet/accept-terms",
+      {
+        method: "POST",
+      }
+    );
+    localTermsAccepted.value = true;
+    if (data.value?.user) {
+      data.value.user.terms_accepted_at = res.terms_accepted_at;
+    }
+    try {
+      window.localStorage.setItem(
+        TERMS_LOCAL_STORAGE_KEY,
+        res.terms_accepted_at
+      );
+    } catch {
+      // Ignore storage write error
+    }
+  }
+
   return {
     data,
     isLoading,
@@ -107,6 +151,7 @@ export const useCabinetStore = defineStore("cabinet", () => {
     selectedChatId,
     currentUser,
     isSuperadmin,
+    isTermsAccepted,
     history,
     clubs,
     myClubs,
@@ -115,6 +160,7 @@ export const useCabinetStore = defineStore("cabinet", () => {
     selectedClub,
     fetchCabinet,
     changeLanguage,
+    acceptTerms,
     toggleClubActive,
   };
 });
