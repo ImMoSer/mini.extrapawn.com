@@ -1,6 +1,10 @@
+import dns from "node:dns";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { startTelegramBotBackgroundLoops } from "./bot/telegramBot.service.js";
+
+// Prefer IPv4 in Docker/Linux environments to prevent intermittent IPv6 TLS ECONNRESET to api.telegram.org
+dns.setDefaultResultOrder("ipv4first");
 import { env } from "./config/env.js";
 import { ensureTeleAppSchemaAndSeed } from "./db/index.js";
 import telegramAuthPlugin from "./plugins/telegramAuth.js";

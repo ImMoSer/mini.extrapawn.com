@@ -13,6 +13,32 @@ import { resolveBotEngine } from "./engineClient.service.js";
 
 const puzzleServiceUrl = env.PUZZLE_SERVICE_URL.replace(/\/+$/, "");
 
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  maxAttempts = 3
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        console.warn(
+          `[PuzzleClient] Fetch attempt ${attempt}/${maxAttempts} failed for ${url}, retrying...`,
+          err instanceof Error ? err.message : err
+        );
+        await new Promise((r) => setTimeout(r, 350 * attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export interface PuzzleServiceResponse {
   discipline: ChallengeDiscipline;
   tactical?: TacticalPuzzlePayload;
@@ -297,7 +323,7 @@ export const puzzleClientService = {
     const url = `${puzzleServiceUrl}/api/training/puzzle/${encodeURIComponent(
       discipline
     )}/${encodeURIComponent(puzzleId)}`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: "GET",
       headers: {
         Accept: "application/json",
@@ -343,7 +369,7 @@ export const puzzleClientService = {
         payload.objective = filter.objective;
       }
 
-      return fetch(url, {
+      return fetchWithRetry(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

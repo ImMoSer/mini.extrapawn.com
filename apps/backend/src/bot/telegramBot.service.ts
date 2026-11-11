@@ -262,12 +262,35 @@ async function callTelegramJson<T>(
     return { ok: false, description: "TELEGRAM_BOT_TOKEN not set" };
   }
   const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return (await res.json()) as TelegramApiResponse<T>;
+  const isLongPoll = method === "getUpdates";
+  const maxAttempts = isLongPoll ? 1 : 3;
+  const timeoutMs = isLongPoll ? 25_000 : 15_000;
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(attempt > 1 ? { Connection: "close" } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return (await res.json()) as TelegramApiResponse<T>;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        console.warn(
+          `[TelegramBot] ${method} network error (attempt ${attempt}/${maxAttempts}), retrying...`,
+          err instanceof Error ? err.message : err
+        );
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function sendTelegramPhoto(params: {
@@ -281,37 +304,57 @@ async function sendTelegramPhoto(params: {
     return null;
   }
 
-  const form = new FormData();
-  form.append("chat_id", params.chatId);
-  if (params.messageThreadId && params.messageThreadId > 0) {
-    form.append("message_thread_id", String(params.messageThreadId));
-  }
-  form.append("parse_mode", "HTML");
-  form.append("caption", params.caption);
-  if (params.replyMarkup) {
-    form.append("reply_markup", JSON.stringify(params.replyMarkup));
-  }
-  const blob = new Blob([new Uint8Array(params.pngBuffer)], {
-    type: "image/png",
-  });
-  form.append("photo", blob, "board.png");
-
   const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`;
-  const res = await fetch(url, {
-    method: "POST",
-    body: form,
-  });
-  const data = (await res.json()) as TelegramApiResponse<{
-    message_id: number;
-  }>;
-  if (!data.ok) {
-    console.error(
-      `[TelegramBot] sendPhoto failed for chat ${params.chatId}:`,
-      data.description
-    );
-    return null;
+  const maxAttempts = 3;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const form = new FormData();
+      form.append("chat_id", params.chatId);
+      if (params.messageThreadId && params.messageThreadId > 0) {
+        form.append("message_thread_id", String(params.messageThreadId));
+      }
+      form.append("parse_mode", "HTML");
+      form.append("caption", params.caption);
+      if (params.replyMarkup) {
+        form.append("reply_markup", JSON.stringify(params.replyMarkup));
+      }
+      const blob = new Blob([new Uint8Array(params.pngBuffer)], {
+        type: "image/png",
+      });
+      form.append("photo", blob, "board.png");
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: attempt > 1 ? { Connection: "close" } : undefined,
+        body: form,
+        signal: AbortSignal.timeout(25_000),
+      });
+      const data = (await res.json()) as TelegramApiResponse<{
+        message_id: number;
+      }>;
+      if (!data.ok) {
+        console.error(
+          `[TelegramBot] sendPhoto API error for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}):`,
+          data.description
+        );
+        return null;
+      }
+      return data.result?.message_id ?? null;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        console.warn(
+          `[TelegramBot] sendPhoto network error for chat ${params.chatId} (attempt ${attempt}/${maxAttempts}), retrying...`,
+          err instanceof Error ? err.message : err
+        );
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
   }
-  return data.result?.message_id ?? null;
+
+  throw lastError;
 }
 
 export const telegramBotService = {
@@ -456,12 +499,25 @@ export const telegramBotService = {
       },
     });
 
+    if (!tgMessageId && env.TELEGRAM_BOT_TOKEN) {
+      throw new Error(
+        `[TelegramBot] sendPhoto returned no message_id for chat ${chatId} (thread ${club.topicThreadId})`
+      );
+    }
+
     if (tgMessageId) {
-      await callTelegramJson("pinChatMessage", {
-        chat_id: chatId,
-        message_id: tgMessageId,
-        disable_notification: true,
-      });
+      try {
+        await callTelegramJson("pinChatMessage", {
+          chat_id: chatId,
+          message_id: tgMessageId,
+          disable_notification: true,
+        });
+      } catch (pinErr) {
+        console.warn(
+          `[TelegramBot] pinChatMessage failed for chat ${chatId} (message ${tgMessageId}):`,
+          pinErr instanceof Error ? pinErr.message : pinErr
+        );
+      }
     }
 
     const [inserted] = await db
@@ -1396,7 +1452,9 @@ async function runScheduledClubsTick(): Promise<void> {
         }
         const minutesSinceStart =
           (zoned.hour - slot.from_hour) * 60 + zoned.minute;
-        return minutesSinceStart % slot.interval_minutes === 0;
+        const remainder = minutesSinceStart % slot.interval_minutes;
+        // Allow a 5-minute grace window (0..5 min after the scheduled mark) so transient errors or restarts still publish
+        return remainder >= 0 && remainder <= 5;
       });
 
       if (!matchingSlot) continue;
@@ -1405,7 +1463,7 @@ async function runScheduledClubsTick(): Promise<void> {
         const elapsedMs =
           now.getTime() - new Date(club.lastPublishedAt).getTime();
         const minCooldownMs =
-          Math.max(8, matchingSlot.interval_minutes - 2) * 60 * 1000;
+          Math.max(8, matchingSlot.interval_minutes - 6) * 60 * 1000;
         if (elapsedMs < minCooldownMs) {
           continue;
         }
