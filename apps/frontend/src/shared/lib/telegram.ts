@@ -13,6 +13,20 @@ export function initTelegramWebApp(): void {
     } else if (typeof tg.enableClosingConfirmation === "function") {
       tg.enableClosingConfirmation();
     }
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const surfaceColor = rootStyles.getPropertyValue("--theme-surface").trim();
+    const canvasColor = rootStyles.getPropertyValue("--theme-canvas").trim();
+
+    if (surfaceColor && typeof tg.setHeaderColor === "function") {
+      tg.setHeaderColor(surfaceColor);
+    }
+    if (canvasColor && typeof tg.setBackgroundColor === "function") {
+      tg.setBackgroundColor(canvasColor);
+    }
+    if (surfaceColor && typeof tg.setBottomBarColor === "function") {
+      tg.setBottomBarColor(surfaceColor);
+    }
   } catch (err) {
     console.warn("[TelegramWebApp] init warning:", err);
   }

@@ -35,7 +35,7 @@ function toggleLanguage() {
   <!-- Bottom Fixed Navigation Bar: Кабинет | 🏆 Клубы | BOSS | RU -->
   <nav
     class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur-xs"
-    style="padding-bottom: env(safe-area-inset-bottom, 0px)"
+    style="padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px))"
   >
     <div class="mx-auto flex max-w-2xl items-center justify-center gap-2 overflow-x-auto px-3 py-2">
       <button

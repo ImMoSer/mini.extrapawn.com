@@ -197,7 +197,9 @@ export function resolveCanonicalFocusKey(
   }
 
   const lower = raw.toLowerCase();
-  const mappedDomain = ENDGAME_CLASS_TO_DOMAIN[lower];
+  const mappedDomain =
+    ENDGAME_CLASS_TO_DOMAIN[lower] ??
+    (lower.startsWith("mate") ? "mate" : undefined);
   const candidate = mappedDomain ?? raw;
   const candidateLower = candidate.toLowerCase();
 

@@ -183,10 +183,31 @@ const telegramAuthPlugin: FastifyPluginAsync = async (fastify) => {
           .update(dataCheckString)
           .digest("hex");
 
-        if (calculatedHash !== hash) {
+        const hashBuffer = Buffer.from(hash, "hex");
+        const calculatedBuffer = Buffer.from(calculatedHash, "hex");
+        if (
+          hashBuffer.length !== calculatedBuffer.length ||
+          !crypto.timingSafeEqual(hashBuffer, calculatedBuffer)
+        ) {
           return reply
             .code(403)
             .send({ error: "Invalid initData signature" });
+        }
+
+        if (!env.ALLOW_MOCK_AUTH) {
+          const authDateRaw = urlParams.get("auth_date");
+          const authDateSec = authDateRaw ? Number(authDateRaw) : NaN;
+          const nowSec = Math.floor(Date.now() / 1000);
+          const maxAgeSec = 86_400; // 24 hours TTL
+          if (
+            !Number.isFinite(authDateSec) ||
+            authDateSec <= 0 ||
+            nowSec - authDateSec > maxAgeSec
+          ) {
+            return reply
+              .code(401)
+              .send({ error: "Expired or invalid initData auth_date" });
+          }
         }
 
         const userStr = urlParams.get("user");

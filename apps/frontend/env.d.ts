@@ -24,6 +24,9 @@ interface TelegramWebApp {
   isClosingConfirmationEnabled?: boolean;
   enableClosingConfirmation?: () => void;
   disableClosingConfirmation?: () => void;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  setBottomBarColor?: (color: string) => void;
   openTelegramLink: (url: string) => void;
   openLink: (url: string) => void;
   HapticFeedback?: {
