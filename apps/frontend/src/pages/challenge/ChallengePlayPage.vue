@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Key } from "@lichess-org/chessground/types";
+import type { Dests, Key } from "@lichess-org/chessground/types";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -7,8 +7,8 @@ import {
   type ChallengeDiscipline,
   type ChallengeParticipantDTO,
 } from "shared";
+import { useBoardStore, WebChessBoard } from "@/entities/chess";
 import { uciLineToSan } from "@/entities/chess/lib/chessPosition";
-import MiniChessBoard from "@/entities/chess/ui/MiniChessBoard.vue";
 import { useChallengeSessionStore } from "@/features/challenge-play/model/challengeSession.store";
 import { useCoachAnalysis } from "@/features/challenge-play/model/useCoachAnalysis";
 import CompactCoachPanel from "@/features/challenge-play/ui/CompactCoachPanel.vue";
@@ -18,6 +18,7 @@ import { useStockfishWasm } from "@/shared/lib/stockfishWasm";
 
 const route = useRoute();
 const router = useRouter();
+const boardStore = useBoardStore();
 const store = useChallengeSessionStore();
 const coach = useCoachAnalysis();
 const { t, disciplineTitle, difficultyTitle } = useI18n();
@@ -106,6 +107,44 @@ const activeBoardShapes = computed<CoachDrawShape[]>(() => {
 
   return [];
 });
+
+const activeDests = computed<Dests>(() => {
+  void store.boardRevision;
+  return store.isBoardInteractive ? new Map(boardStore.dests) : new Map();
+});
+
+watch(
+  activeBoardShapes,
+  (shapes) => {
+    boardStore.setCoachShapes(shapes);
+  },
+  { immediate: true }
+);
+
+async function handleBoardUserMove({
+  orig,
+  dest,
+}: {
+  orig: Key;
+  dest: Key;
+}): Promise<void> {
+  const uci = await boardStore.prepareUserUciMove({ orig, dest });
+  if (!uci) {
+    boardStore.loadPosition(store.currentFen, { skipSound: true });
+    boardStore.syncVisualCues({ lastMove: store.lastMove });
+    return;
+  }
+  await store.handleUserMove(uci);
+}
+
+function handleWheelNavigate(direction: "up" | "down"): void {
+  if (!store.isFinished) return;
+  if (direction === "up" && store.canStepPrev) {
+    store.stepBackward();
+  } else if (direction === "down" && store.canStepNext) {
+    store.stepForward();
+  }
+}
 
 function switchAnalysisTab(mode: "stockfish" | "coach") {
   if (!store.isFinished) return;
@@ -261,19 +300,29 @@ onUnmounted(() => {
     </div>
 
     <!-- Interactive Chessboard (stable vertical position — never shifts!) -->
-    <MiniChessBoard
+    <div
       v-if="store.challenge"
-      :fen="store.currentFen"
-      :orientation="store.challenge.user_color"
-      :turn-color="store.positionSnapshot.turnColor"
-      :dests="store.positionSnapshot.dests"
-      :last-move="store.lastMove"
-      :check="store.positionSnapshot.isCheck"
-      :interactive="store.isBoardInteractive"
-      :shapes="activeBoardShapes"
-      :board-revision="store.boardRevision"
-      @move="(uci) => store.handleUserMove(uci)"
-    />
+      class="relative aspect-square w-full overflow-hidden rounded-lg border border-border bg-surface select-none"
+    >
+      <WebChessBoard
+        :fen="boardStore.fen"
+        :orientation="boardStore.orientation"
+        :turn-color="boardStore.turn"
+        :dests="activeDests"
+        :last-move="boardStore.lastMove"
+        :check="boardStore.isCheck"
+        :promotion-state="boardStore.promotionState"
+        :drawable-shapes="boardStore.drawableShapes"
+        :is-analysis-mode="store.isFinished"
+        :animation-enabled="true"
+        :animation-duration="200"
+        :can-edit="true"
+        @user-move="handleBoardUserMove"
+        @complete-promotion="boardStore.completePromotion"
+        @shapes-change="boardStore.setDrawableShapes"
+        @wheel-navigate="handleWheelNavigate"
+      />
+    </div>
 
     <!-- Single-Row Control Bar Directly Under Board -->
     <section

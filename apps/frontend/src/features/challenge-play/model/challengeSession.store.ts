@@ -6,6 +6,7 @@ import type {
   ChallengeParticipantDTO,
   ChallengeStateDTO,
 } from "shared";
+import { useBoardStore } from "@/entities/chess";
 import {
   analyzeFenPosition,
   applyMoveToFen,
@@ -21,6 +22,7 @@ import {
 } from "@/shared/lib/telegram";
 
 export const useChallengeSessionStore = defineStore("challengeSession", () => {
+  const boardStore = useBoardStore();
   const challenge = ref<ChallengeStateDTO | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
@@ -135,7 +137,10 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     }
   }
 
-  function setupBoardFromChallenge(state: ChallengeStateDTO) {
+  function setupBoardFromChallenge(
+    state: ChallengeStateDTO,
+    options?: { skipSound?: boolean }
+  ) {
     replayParticipant.value = null;
     playedUciMoves.value = [];
     playedSanMoves.value = [];
@@ -177,6 +182,15 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     coachRootFen.value = resolvedRootFen;
     coachPrefixMoves.value = resolvedPrefixMoves;
 
+    boardStore.setupPosition(state.puzzle_fen, state.user_color, {
+      skipSound: options?.skipSound,
+    });
+    boardStore.syncVisualCues({
+      lastMove: initialLastMove,
+      lastNag: null,
+      shapes: [],
+    });
+
     timelineSteps.value = [
       {
         stepIndex: 0,
@@ -213,7 +227,6 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
       challenge.value = res;
       setupBoardFromChallenge(res);
-      playChessSound("load_position");
 
       if (res.my_entry?.status === "solved") {
         elapsedMs.value = res.my_entry.solved_time_ms ?? 0;
@@ -286,8 +299,10 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       messageKey: "challenge_wrong_move",
     };
     if (resetToStart && challenge.value) {
-      setupBoardFromChallenge(challenge.value);
+      setupBoardFromChallenge(challenge.value, { skipSound: true });
     } else {
+      boardStore.loadPosition(currentFen.value, { skipSound: true });
+      boardStore.syncVisualCues({ lastMove: lastMove.value, lastNag: null });
       boardRevision.value += 1;
     }
     await submitAttemptToBackend(false);
@@ -344,6 +359,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       const applied = applyMoveToFen(currentFen.value, res.bestMove);
       currentFen.value = applied.nextFen;
       lastMove.value = [applied.from, applied.to];
+      boardStore.applyUciMove(applied.uci, { skipSound: true });
       playedUciMoves.value.push(applied.uci);
       playedSanMoves.value.push(applied.san);
       appendMoveToTimeline(applied);
@@ -380,10 +396,13 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         const applied = applyMoveToFen(currentFen.value, uciMove);
         currentFen.value = applied.nextFen;
         lastMove.value = [applied.from, applied.to];
+        boardStore.applyUciMove(applied.uci, { skipSound: true });
         appendMoveToTimeline(applied, true);
         playAppliedMoveSound(applied);
       } catch {
-        // Ignore illegal move
+        boardStore.loadPosition(currentFen.value, { skipSound: true });
+        boardStore.syncVisualCues({ lastMove: lastMove.value });
+        boardRevision.value += 1;
       }
       return;
     }
@@ -409,6 +428,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
       currentFen.value = preview.nextFen;
       lastMove.value = [preview.from, preview.to];
+      boardStore.applyUciMove(preview.uci, { skipSound: true });
       playedUciMoves.value.push(preview.uci);
       playedSanMoves.value.push(preview.san);
       appendMoveToTimeline(preview);
@@ -432,6 +452,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         const botApplied = applyMoveToFen(currentFen.value, botUci);
         currentFen.value = botApplied.nextFen;
         lastMove.value = [botApplied.from, botApplied.to];
+        boardStore.applyUciMove(botApplied.uci, { skipSound: true });
         playedUciMoves.value.push(botApplied.uci);
         playedSanMoves.value.push(botApplied.san);
         appendMoveToTimeline(botApplied);
@@ -454,6 +475,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     const applied = applyMoveToFen(currentFen.value, uciMove);
     currentFen.value = applied.nextFen;
     lastMove.value = [applied.from, applied.to];
+    boardStore.applyUciMove(applied.uci, { skipSound: true });
     playedUciMoves.value.push(applied.uci);
     playedSanMoves.value.push(applied.san);
     appendMoveToTimeline(applied);
@@ -536,6 +558,12 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     if (!snap) return;
     currentFen.value = snap.fen;
     lastMove.value = snap.lastMove;
+    boardStore.loadPosition(snap.fen, { skipSound: true });
+    boardStore.syncVisualCues({
+      lastMove: snap.lastMove,
+      lastNag: null,
+      shapes: [],
+    });
     if (withSound && clamped !== prevIndex) {
       playChessSound("chpock");
     }
@@ -559,7 +587,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
   function exitParticipantReplay(): void {
     if (!challenge.value) return;
-    setupBoardFromChallenge(challenge.value);
+    setupBoardFromChallenge(challenge.value, { skipSound: true });
     if (
       challenge.value.my_entry?.status === "solved" &&
       challenge.value.my_entry.uci_moves

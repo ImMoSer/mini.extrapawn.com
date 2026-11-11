@@ -85,7 +85,7 @@ class SoundServiceController {
     return audio;
   }
 
-  public play(key: SoundKey): void {
+  public play(key: SoundKey, _context?: string): void {
     const pathOrPool = SOUND_DEFINITIONS[key];
     const path =
       typeof pathOrPool === "string"

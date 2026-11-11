@@ -1,7 +1,6 @@
 @import 'tailwindcss';
 @import '@lichess-org/chessground/assets/chessground.base.css';
 @import '@lichess-org/chessground/assets/chessground.brown.css';
-@import '@lichess-org/chessground/assets/chessground.cburnett.css';
 @import './fonts.css';
 
 /* ============================================================================
@@ -226,52 +225,47 @@ body {
 }
 
 /* ============================================================================
- * 4. WOOD4 CHESSBOARD THEME (Synced with app_vue)
+ * 4. CHESSBOARD & PIECE SET THEME (Synced with app_vue)
  * ============================================================================ */
-.cg-wrap cg-board {
-  background-color: #b58863;
+cg-board {
   background-image: url('/board/jpg_png/wood4.jpg'), url('/board/jpg_png/wood4.thumbnail.jpg');
   background-size: cover;
   background-position: center;
 }
 
-.cg-wrap coords {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 10px;
-  opacity: 0.92;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+piece.pawn.white {
+  background-image: url('/piece/cburnett/wP.svg');
 }
-
-.cg-wrap coords.ranks coord:nth-child(odd),
-.cg-wrap coords.files coord:nth-child(even) {
-  color: #f3e5d0;
+piece.pawn.black {
+  background-image: url('/piece/cburnett/bP.svg');
 }
-
-.cg-wrap coords.ranks coord:nth-child(even),
-.cg-wrap coords.files coord:nth-child(odd) {
-  color: #f3e5d0;
+piece.knight.white {
+  background-image: url('/piece/cburnett/wN.svg');
 }
-
-.cg-wrap cg-board square.last-move {
-  background-color: rgba(155, 199, 0, 0.44);
+piece.knight.black {
+  background-image: url('/piece/cburnett/bN.svg');
 }
-
-.cg-wrap cg-board square.selected {
-  background-color: rgba(20, 85, 30, 0.52);
+piece.bishop.white {
+  background-image: url('/piece/cburnett/wB.svg');
 }
-
-.cg-wrap cg-board square.move-dest {
-  background: radial-gradient(
-    rgba(20, 85, 30, 0.52) 20%,
-    rgba(20, 85, 30, 0) 22%
-  );
+piece.bishop.black {
+  background-image: url('/piece/cburnett/bB.svg');
 }
-
-.cg-wrap cg-board square.oc.move-dest {
-  background: radial-gradient(
-    transparent 0%,
-    transparent 79%,
-    rgba(20, 85, 0, 0.42) 80%
-  );
+piece.rook.white {
+  background-image: url('/piece/cburnett/wR.svg');
+}
+piece.rook.black {
+  background-image: url('/piece/cburnett/bR.svg');
+}
+piece.queen.white {
+  background-image: url('/piece/cburnett/wQ.svg');
+}
+piece.queen.black {
+  background-image: url('/piece/cburnett/bQ.svg');
+}
+piece.king.white {
+  background-image: url('/piece/cburnett/wK.svg');
+}
+piece.king.black {
+  background-image: url('/piece/cburnett/bK.svg');
 }

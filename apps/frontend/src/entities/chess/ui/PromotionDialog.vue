@@ -1,68 +1,67 @@
 <script setup lang="ts">
-import type { Key } from "@lichess-org/chessground/types";
-import { key2pos } from "@lichess-org/chessground/util";
-import type { Role as ChessopsRole } from "chessops/types";
-import { computed } from "vue";
+import type { Key } from '@lichess-org/chessground/types'
+import { key2pos } from '@lichess-org/chessground/util'
+import type { Role as ChessopsRole } from 'chessops/types'
+import { computed } from 'vue'
 
-interface Props {
-  dest: Key;
-  color: "white" | "black";
-  orientation: "white" | "black";
-}
-
-const props = defineProps<Props>();
+const props = defineProps<{
+  dest: Key
+  color: 'white' | 'black'
+  orientation: 'white' | 'black'
+}>()
 
 const emit = defineEmits<{
-  (e: "piece-selected", role: ChessopsRole): void;
-  (e: "cancel"): void;
-}>();
+  (e: 'piece-selected', role: ChessopsRole): void
+}>()
 
-const promotionRoles: ChessopsRole[] = ["queen", "knight", "rook", "bishop"];
+const promotionRoles: ChessopsRole[] = ['queen', 'knight', 'rook', 'bishop']
 
-const dialogPosition = computed(() => {
-  const pos = key2pos(props.dest);
-  let row = pos[1];
-  let col = pos[0];
+const squareStyles = computed(() => {
+  const [file, rank] = key2pos(props.dest)
 
-  if (props.orientation === "white") {
-    row = 9 - row;
-  } else {
-    col = 9 - col;
+  return (role: ChessopsRole) => {
+    const roleIndex = promotionRoles.indexOf(role)
+
+    let col: number
+    let row: number
+
+    if (props.orientation === 'white') {
+      col = file + 1
+      const startRankIdx = rank
+      const targetRankIdx =
+        props.color === 'white' ? startRankIdx - roleIndex : startRankIdx + roleIndex
+      row = 8 - targetRankIdx
+    } else {
+      col = 8 - file
+      const startRankIdx = rank
+      const targetRankIdx =
+        props.color === 'white' ? startRankIdx - roleIndex : startRankIdx + roleIndex
+      row = targetRankIdx + 1
+    }
+
+    return {
+      gridColumn: col,
+      gridRow: row,
+    }
   }
+})
 
-  return {
-    gridColumnStart: col,
-    gridRowStart: row,
-  };
-});
-
-function getPiecePosition(index: number) {
-  const baseRow = dialogPosition.value.gridRowStart;
-  const isTopToBottom =
-    (props.color === "white" && props.orientation === "white") ||
-    (props.color === "black" && props.orientation === "black");
-  return {
-    gridColumnStart: dialogPosition.value.gridColumnStart,
-    gridRowStart: isTopToBottom ? baseRow + index : baseRow - index,
-  };
-}
-
-function selectPiece(role: ChessopsRole) {
-  emit("piece-selected", role);
+function onPieceSelected(role: ChessopsRole) {
+  emit('piece-selected', role)
 }
 </script>
 
 <template>
   <div
-    class="cg-wrap !absolute !inset-0 z-30 !grid cursor-default touch-none grid-cols-8 grid-rows-8 bg-canvas/65"
-    @click.self="emit('cancel')"
+    class="absolute inset-0 z-100 grid cursor-default touch-none grid-cols-8 grid-rows-8 bg-canvas/65"
+    @click.stop
   >
     <div
-      v-for="(role, index) in promotionRoles"
+      v-for="role in promotionRoles"
       :key="role"
-      class="flex cursor-pointer items-center justify-center rounded-full bg-surface shadow-[0_0_12px_2px_rgba(0,0,0,0.6)] transition-all duration-150 hover:scale-105 hover:rounded-none hover:bg-warning"
-      :style="getPiecePosition(index)"
-      @click="selectPiece(role)"
+      class="m-0.5 flex cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border-hover bg-eval-white transition-transform duration-100 hover:scale-105 hover:border-brand"
+      :style="squareStyles(role)"
+      @click="onPieceSelected(role)"
     >
       <piece :class="`${color} ${role}`" class="h-full w-full bg-cover"></piece>
     </div>
