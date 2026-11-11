@@ -71,14 +71,7 @@ async function fetchClubRecords() {
       `/challenges/records/${encodeURIComponent(chatId.value)}`
     );
     data.value = res;
-    if (
-      activeChallenges.value.length === 0 &&
-      completedChallenges.value.length > 0
-    ) {
-      challengesTab.value = "completed";
-    } else {
-      challengesTab.value = "active";
-    }
+    challengesTab.value = "active";
   } finally {
     isLoading.value = false;
   }

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, desc, eq, isNotNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, ne, or } from "drizzle-orm";
 import {
   ALL_DAYS_OF_WEEK,
   calculateAttemptPoints,
@@ -1461,7 +1461,29 @@ async function notifyAutoPauseReplyOnce(
   await callTelegramJson("sendMessage", payload);
 }
 
+let lastThirtyDayCleanupAt = 0;
+
+async function purgeExpiredThirtyDayRecords(): Promise<void> {
+  const nowMs = Date.now();
+  const oneHourMs = 60 * 60 * 1000;
+  if (nowMs - lastThirtyDayCleanupAt < oneHourMs) return;
+  lastThirtyDayCleanupAt = nowMs;
+
+  const cutoffDate = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
+  try {
+    await db
+      .delete(challengeAttempts)
+      .where(lt(challengeAttempts.updatedAt, cutoffDate));
+    await db
+      .delete(clubChallenges)
+      .where(lt(clubChallenges.publishedAt, cutoffDate));
+  } catch (err) {
+    console.error("[TelegramBot] 30-day retention cleanup error:", err);
+  }
+}
+
 async function runScheduledClubsTick(): Promise<void> {
+  await purgeExpiredThirtyDayRecords();
   if (!env.TELEGRAM_BOT_TOKEN) return;
   try {
     const activeClubs = await db

@@ -102,7 +102,7 @@ async function computeViewerNextActive(params: {
       .from(clubChallenges)
       .where(eq(clubChallenges.chatId, params.chatId))
       .orderBy(desc(clubChallenges.publishedAt))
-      .limit(50),
+      .limit(10),
     db
       .select({
         discipline: challengeAttempts.discipline,
@@ -625,7 +625,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         .from(clubChallenges)
         .where(eq(clubChallenges.chatId, chatId))
         .orderBy(desc(clubChallenges.publishedAt))
-        .limit(50);
+        .limit(10);
 
       interface ChallengeStatsBucket {
         solvedCount: number;
