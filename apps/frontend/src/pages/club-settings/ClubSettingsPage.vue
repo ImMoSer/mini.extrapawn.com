@@ -8,6 +8,7 @@ import {
   ALL_SCHEDULE_INTERVALS,
   createDefaultWeeklySchedule,
   DEFAULT_CLUB_CHAT_ID,
+  getWarmupTileLabel,
   getWarmupTilesForDiscipline,
   normalizeWeeklySchedule,
   type AppLanguage,
@@ -280,7 +281,12 @@ async function publishChallengeNow() {
     const ok = await saveSettings();
     if (!ok) return;
 
-    const firstSlot = weeklySchedule.value[activeDay.value].slots[0];
+    const currentHour = new Date().getHours();
+    const activeSlots = weeklySchedule.value[activeDay.value].slots;
+    const chosenSlot =
+      activeSlots.find(
+        (s) => currentHour >= s.from_hour && currentHour < s.to_hour
+      ) ?? activeSlots[0];
     const res = await apiRequest<{
       ok: boolean;
       challenge: {
@@ -292,13 +298,13 @@ async function publishChallengeNow() {
     }>(`/clubs/${encodeURIComponent(chatId.value)}/publish-now`, {
       method: "POST",
       body: JSON.stringify(
-        firstSlot
+        chosenSlot
           ? {
-              discipline: firstSlot.discipline,
-              difficulty: firstSlot.difficulty,
-              focusGroup: firstSlot.focus_group,
-              focusKey: firstSlot.focus_key,
-              objective: firstSlot.objective,
+              discipline: chosenSlot.discipline,
+              difficulty: chosenSlot.difficulty,
+              focusGroup: chosenSlot.focus_group,
+              focusKey: chosenSlot.focus_key,
+              objective: chosenSlot.objective,
             }
           : {}
       ),
@@ -606,7 +612,7 @@ onMounted(() => {
           <!-- Row 2: Single Discipline per Interval -->
           <div class="flex flex-col gap-1.5">
             <span class="text-[11px] font-bold tracking-wider text-text-secondary uppercase">
-              Дисциплина (одна на интервал)
+              {{ t("settings_slot_discipline") }}
             </span>
             <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               <button
@@ -629,7 +635,7 @@ onMounted(() => {
           <!-- Row 3: Single Difficulty per Interval -->
           <div class="flex flex-col gap-1.5">
             <span class="text-[11px] font-bold tracking-wider text-text-secondary uppercase">
-              Сложность
+              {{ t("settings_slot_difficulty") }}
             </span>
             <div class="grid grid-cols-3 gap-1.5">
               <button
@@ -663,7 +669,7 @@ onMounted(() => {
           <!-- Row 4: Focus / Theme Tile for this Interval's Discipline -->
           <div class="flex flex-col gap-1.5">
             <span class="text-[11px] font-bold tracking-wider text-text-secondary uppercase">
-              Тема / Фокус ({{ disciplineTitle(slot.discipline) }})
+              {{ t("settings_slot_focus") }} ({{ disciplineTitle(slot.discipline) }})
             </span>
             <div class="flex flex-wrap gap-1.5">
               <button
@@ -678,7 +684,7 @@ onMounted(() => {
                 "
                 @click="selectSlotFocusTile(slot, tile)"
               >
-                {{ lang === "en" ? tile.labelEn : tile.labelRu }}
+                {{ getWarmupTileLabel(tile, lang) }}
               </button>
             </div>
           </div>
@@ -699,11 +705,11 @@ onMounted(() => {
     <!-- Bot Language -->
     <section class="glass flex flex-wrap items-center justify-between gap-3 p-4">
       <span class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-        Язык постов бота в Telegram
+        {{ t("settings_bot_language") }}
       </span>
       <div class="flex items-center gap-2">
         <button
-          v-for="l in ['ru', 'en'] as const"
+          v-for="l in ['ru', 'en', 'de'] as const"
           :key="l"
           type="button"
           class="rounded-md border px-3.5 py-1.5 text-xs font-bold uppercase transition"

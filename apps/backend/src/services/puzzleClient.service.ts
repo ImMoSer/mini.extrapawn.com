@@ -1,11 +1,12 @@
-import type {
-  BotEngineId,
-  ChallengeDifficulty,
-  ChallengeDiscipline,
-  EndgamePuzzlePayload,
-  PuzzleObjective,
-  PuzzleStrategyType,
-  TacticalPuzzlePayload,
+import {
+  resolveCanonicalFocusKey,
+  type BotEngineId,
+  type ChallengeDifficulty,
+  type ChallengeDiscipline,
+  type EndgamePuzzlePayload,
+  type PuzzleObjective,
+  type PuzzleStrategyType,
+  type TacticalPuzzlePayload,
 } from "shared";
 import { env } from "../config/env.js";
 import { resolveBotEngine } from "./engineClient.service.js";
@@ -64,7 +65,12 @@ function extractPayloads(raw: RawPuzzleServicePayload): {
 }
 
 export function normalizePuzzlePayload(
-  raw: RawPuzzleServicePayload
+  raw: RawPuzzleServicePayload,
+  requestedFocus?: {
+    focusGroup?: string;
+    focusKey?: string;
+    objective?: string;
+  }
 ): NormalizedChallengePuzzle {
   const extracted = extractPayloads(raw);
 
@@ -88,8 +94,12 @@ export function normalizePuzzlePayload(
     const lastMoveUci =
       firstMove === "bot" && solutionMoves[0] ? solutionMoves[0] : undefined;
 
-    const category =
-      t.goal || t.phase || t.meta_themes?.[0] || t.concept_motifs?.[0] || "MIX";
+    const reqKey = requestedFocus?.focusKey?.trim();
+    const rawTacticalCategory =
+      reqKey && reqKey !== "all"
+        ? reqKey
+        : t.goal || t.phase || "all";
+    const category = resolveCanonicalFocusKey(discipline, rawTacticalCategory);
 
     return {
       discipline,
@@ -134,6 +144,20 @@ export function normalizePuzzlePayload(
     const lastMoveUci =
       firstMove === "bot" && solutionMoves[0] ? solutionMoves[0] : undefined;
 
+    const canonicalDomain = resolveCanonicalFocusKey(
+      discipline,
+      e.domain || e.class
+    );
+    const isRequestedObjectiveFocus =
+      discipline === "theoretical_endgames" &&
+      requestedFocus?.focusGroup === "objective" &&
+      (requestedFocus.focusKey === "hold_draw" ||
+        requestedFocus.focusKey === "win");
+
+    const category = isRequestedObjectiveFocus
+      ? requestedFocus.focusKey!
+      : canonicalDomain;
+
     return {
       discipline,
       puzzleId: e.puzzle_id,
@@ -147,8 +171,8 @@ export function normalizePuzzlePayload(
       strategy,
       objective,
       tacticalSolution,
-      domain: e.domain || "COMPLEX",
-      category: e.class || e.domain || "MIX",
+      domain: canonicalDomain === "all" ? "COMPLEX" : canonicalDomain,
+      category,
       endgame: e,
     };
   }
@@ -329,17 +353,7 @@ export const puzzleClientService = {
       });
     };
 
-    let response = await doSelect(normalized);
-
-    // If a specific focus/objective slice had no matching puzzles or was incompatible, fallback to "all"
-    if (
-      !response.ok &&
-      (normalized.focusGroup !== "all" ||
-        normalized.focusKey !== "all" ||
-        normalized.objective)
-    ) {
-      response = await doSelect({ focusGroup: "all", focusKey: "all" });
-    }
+    const response = await doSelect(normalized);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -349,6 +363,6 @@ export const puzzleClientService = {
     }
 
     const raw = (await response.json()) as PuzzleServiceResponse;
-    return normalizePuzzlePayload(raw);
+    return normalizePuzzlePayload(raw, normalized);
   },
 };

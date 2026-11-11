@@ -42,7 +42,7 @@ function toggleLanguage() {
         type="button"
         class="shrink-0 rounded-md px-3.5 py-1.5 text-xs font-semibold transition"
         :class="
-          route.path === '/cabinet' || route.path.startsWith('/club-settings')
+          route.path === '/cabinet'
             ? 'bg-elevated text-brand border border-brand/40'
             : 'text-text-secondary hover:text-text-primary'
         "
@@ -55,7 +55,9 @@ function toggleLanguage() {
         type="button"
         class="shrink-0 rounded-md px-3.5 py-1.5 text-xs font-semibold transition"
         :class="
-          route.path === '/clubs' || route.path.startsWith('/challenge/records')
+          route.path === '/clubs' ||
+          route.path.startsWith('/challenge/records') ||
+          route.path.startsWith('/club-settings')
             ? 'bg-elevated text-brand border border-brand/40'
             : 'text-text-secondary hover:text-text-primary'
         "

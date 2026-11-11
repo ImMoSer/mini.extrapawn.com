@@ -6,10 +6,20 @@ export const SUPERADMIN_TELEGRAM_ID = "5106981885";
 export const DEFAULT_CLUB_CHAT_ID = "-1002255301933";
 export const DEFAULT_CLUB_THREAD_ID = 293770;
 export const DEFAULT_CLUB_TITLE = "EXTRAPAWNCLUB";
-export const DEFAULT_CLUB_INVITE_URL = "https://t.me/EXTRAPAWNCLUB/293770";
+export const DEFAULT_CLUB_INVITE_URL = "https://t.me/EXTRAPAWNCLUB/1";
 export const MAX_OWNED_CLUBS_PER_USER = 2;
 
 export type AppLanguage = "ru" | "en" | "de";
+
+export const OFFICIAL_CLUB_INVITE_URLS: Record<AppLanguage, string> = {
+  ru: "https://t.me/EXTRAPAWNCLUB/1",
+  en: "https://t.me/EXTRAPAWNCLUB/293806",
+  de: "https://t.me/EXTRAPAWNCLUB/293807",
+};
+
+export function getOfficialClubInviteUrl(lang: AppLanguage): string {
+  return OFFICIAL_CLUB_INVITE_URLS[lang] ?? OFFICIAL_CLUB_INVITE_URLS.ru;
+}
 
 export type DayOfWeekKey =
   | "mon"
@@ -77,43 +87,77 @@ export interface WarmupFocusTile {
   focusKey: string;
   labelRu: string;
   labelEn: string;
+  labelDe: string;
 }
 
 export const TACTICS_WARMUP_TILES: readonly WarmupFocusTile[] = [
-  { id: "mix", focusGroup: "all", focusKey: "all", labelRu: "MIX", labelEn: "MIX" },
-  { id: "opening", focusGroup: "phase", focusKey: "opening", labelRu: "Дебют", labelEn: "Opening" },
-  { id: "middlegame", focusGroup: "phase", focusKey: "middlegame", labelRu: "Миттельшпиль", labelEn: "Middlegame" },
-  { id: "endgame", focusGroup: "phase", focusKey: "endgame", labelRu: "Эндшпиль", labelEn: "Endgame" },
-  { id: "attack", focusGroup: "motif", focusKey: "kingsideAttack", labelRu: "Атака", labelEn: "Attack" },
-  { id: "defense", focusGroup: "motif", focusKey: "defensiveMove", labelRu: "Защита", labelEn: "Defense" },
-  { id: "sacrifice", focusGroup: "motif", focusKey: "sacrifice", labelRu: "Жертва", labelEn: "Sacrifice" },
-  { id: "mate", focusGroup: "goal", focusKey: "mate", labelRu: "Мат", labelEn: "Checkmate" },
-  { id: "crushing", focusGroup: "goal", focusKey: "crushing", labelRu: "Разгром", labelEn: "Crushing" },
-  { id: "advantage", focusGroup: "goal", focusKey: "advantage", labelRu: "Перевес", labelEn: "Advantage" },
+  { id: "mix", focusGroup: "all", focusKey: "all", labelRu: "MIX", labelEn: "MIX", labelDe: "MIX" },
+  { id: "opening", focusGroup: "phase", focusKey: "opening", labelRu: "Дебют", labelEn: "Opening", labelDe: "Eröffnung" },
+  { id: "middlegame", focusGroup: "phase", focusKey: "middlegame", labelRu: "Миттельшпиль", labelEn: "Middlegame", labelDe: "Mittelspiel" },
+  { id: "endgame", focusGroup: "phase", focusKey: "endgame", labelRu: "Эндшпиль", labelEn: "Endgame", labelDe: "Endspiel" },
+  { id: "attack", focusGroup: "motif", focusKey: "kingsideAttack", labelRu: "Атака", labelEn: "Attack", labelDe: "Angriff" },
+  { id: "defense", focusGroup: "motif", focusKey: "defensiveMove", labelRu: "Защита", labelEn: "Defense", labelDe: "Verteidigung" },
+  { id: "sacrifice", focusGroup: "motif", focusKey: "sacrifice", labelRu: "Жертва", labelEn: "Sacrifice", labelDe: "Opfer" },
+  { id: "mate", focusGroup: "goal", focusKey: "mate", labelRu: "Мат", labelEn: "Checkmate", labelDe: "Matt" },
+  { id: "crushing", focusGroup: "goal", focusKey: "crushing", labelRu: "Разгром", labelEn: "Crushing", labelDe: "Vernichtend" },
+  { id: "advantage", focusGroup: "goal", focusKey: "advantage", labelRu: "Перевес", labelEn: "Advantage", labelDe: "Vorteil" },
 ];
 
 export const THEORETICAL_WARMUP_TILES: readonly WarmupFocusTile[] = [
-  { id: "mix", focusGroup: "all", focusKey: "all", labelRu: "MIX", labelEn: "MIX" },
-  { id: "draw", focusGroup: "objective", focusKey: "hold_draw", labelRu: "Ничья", labelEn: "Hold Draw" },
-  { id: "win", focusGroup: "objective", focusKey: "win", labelRu: "Победа", labelEn: "Win" },
-  { id: "pawn", focusGroup: "domain", focusKey: "PAWN", labelRu: "Пешечник", labelEn: "Pawn Ending" },
-  { id: "rook", focusGroup: "domain", focusKey: "ROOK", labelRu: "Ладейник", labelEn: "Rook Ending" },
-  { id: "bishop", focusGroup: "domain", focusKey: "BISHOP", labelRu: "Слоновый", labelEn: "Bishop Ending" },
-  { id: "knight", focusGroup: "domain", focusKey: "KNIGHT", labelRu: "Коневой", labelEn: "Knight Ending" },
-  { id: "queen", focusGroup: "domain", focusKey: "QUEEN", labelRu: "Ферзевый", labelEn: "Queen Ending" },
-  { id: "complex", focusGroup: "domain", focusKey: "COMPLEX", labelRu: "Сложный", labelEn: "Complex Ending" },
+  { id: "mix", focusGroup: "all", focusKey: "all", labelRu: "MIX", labelEn: "MIX", labelDe: "MIX" },
+  { id: "draw", focusGroup: "objective", focusKey: "hold_draw", labelRu: "Ничья", labelEn: "Hold Draw", labelDe: "Remis halten" },
+  { id: "win", focusGroup: "objective", focusKey: "win", labelRu: "Победа", labelEn: "Win", labelDe: "Gewinn" },
+  { id: "pawn", focusGroup: "domain", focusKey: "PAWN", labelRu: "Пешечник", labelEn: "Pawn Ending", labelDe: "Bauernendspiel" },
+  { id: "rook", focusGroup: "domain", focusKey: "ROOK", labelRu: "Ладейник", labelEn: "Rook Ending", labelDe: "Turmendspiel" },
+  { id: "bishop", focusGroup: "domain", focusKey: "BISHOP", labelRu: "Слоновый", labelEn: "Bishop Ending", labelDe: "Läuferendspiel" },
+  { id: "knight", focusGroup: "domain", focusKey: "KNIGHT", labelRu: "Коневой", labelEn: "Knight Ending", labelDe: "Springerendspiel" },
+  { id: "queen", focusGroup: "domain", focusKey: "QUEEN", labelRu: "Ферзевый", labelEn: "Queen Ending", labelDe: "Damenendspiel" },
+  { id: "complex", focusGroup: "domain", focusKey: "COMPLEX", labelRu: "Сложный", labelEn: "Complex Ending", labelDe: "Komplexes Endspiel" },
 ];
 
 export const PRACTICAL_WARMUP_TILES: readonly WarmupFocusTile[] = [
-  { id: "mix", focusGroup: "all", focusKey: "all", labelRu: "MIX", labelEn: "MIX" },
-  { id: "pawn", focusGroup: "domain", focusKey: "PAWN", labelRu: "Пешечник", labelEn: "Pawn Ending" },
-  { id: "rook", focusGroup: "domain", focusKey: "ROOK", labelRu: "Ладейник", labelEn: "Rook Ending" },
-  { id: "bishop", focusGroup: "domain", focusKey: "BISHOP", labelRu: "Слоновый", labelEn: "Bishop Ending" },
-  { id: "knight", focusGroup: "domain", focusKey: "KNIGHT", labelRu: "Коневой", labelEn: "Knight Ending" },
-  { id: "queen", focusGroup: "domain", focusKey: "QUEEN", labelRu: "Ферзевый", labelEn: "Queen Ending" },
-  { id: "complex", focusGroup: "domain", focusKey: "COMPLEX", labelRu: "Сложный", labelEn: "Complex Ending" },
-  { id: "extra", focusGroup: "domain", focusKey: "EXTRA", labelRu: "EXTRAPAWN", labelEn: "EXTRAPAWN" },
+  { id: "mix", focusGroup: "all", focusKey: "all", labelRu: "MIX", labelEn: "MIX", labelDe: "MIX" },
+  { id: "pawn", focusGroup: "domain", focusKey: "PAWN", labelRu: "Пешечник", labelEn: "Pawn Ending", labelDe: "Bauernendspiel" },
+  { id: "rook", focusGroup: "domain", focusKey: "ROOK", labelRu: "Ладейник", labelEn: "Rook Ending", labelDe: "Turmendspiel" },
+  { id: "bishop", focusGroup: "domain", focusKey: "BISHOP", labelRu: "Слоновый", labelEn: "Bishop Ending", labelDe: "Läuferendspiel" },
+  { id: "knight", focusGroup: "domain", focusKey: "KNIGHT", labelRu: "Коневой", labelEn: "Knight Ending", labelDe: "Springerendspiel" },
+  { id: "queen", focusGroup: "domain", focusKey: "QUEEN", labelRu: "Ферзевый", labelEn: "Queen Ending", labelDe: "Damenendspiel" },
+  { id: "complex", focusGroup: "domain", focusKey: "COMPLEX", labelRu: "Сложный", labelEn: "Complex Ending", labelDe: "Komplexes Endspiel" },
+  { id: "extra", focusGroup: "domain", focusKey: "EXTRA", labelRu: "EXTRAPAWN", labelEn: "EXTRAPAWN", labelDe: "EXTRAPAWN" },
 ];
+
+export const ENDGAME_CLASS_TO_DOMAIN: Readonly<Record<string, string>> = {
+  pawnending: "PAWN",
+  knightending: "KNIGHT",
+  knightvspawns: "KNIGHT",
+  twoknightsvspawn: "KNIGHT",
+  bishopvspawns: "BISHOP",
+  oppositecolorbishops: "BISHOP",
+  samecolorbishops: "BISHOP",
+  twobishopsending: "BISHOP",
+  doublerookending: "ROOK",
+  rookending: "ROOK",
+  rookvspawns: "ROOK",
+  queenending: "QUEEN",
+  queenvspawns: "QUEEN",
+  bishopknightending: "COMPLEX",
+  bishopvsknight: "COMPLEX",
+  mixending: "COMPLEX",
+  queenbishopvsqueen: "COMPLEX",
+  queenknightvsqueen: "COMPLEX",
+  queenminorvsqueenminor: "COMPLEX",
+  queenrookending: "COMPLEX",
+  queenvsminors: "COMPLEX",
+  queenvsrook: "COMPLEX",
+  queenvsrookminor: "COMPLEX",
+  queenvstworooks: "COMPLEX",
+  rookminorvsrook: "COMPLEX",
+  rookminorvsrookminor: "COMPLEX",
+  rookvsminor: "COMPLEX",
+  rookvstwomenors: "COMPLEX",
+  rookvstwominors: "COMPLEX",
+  extrapawn: "EXTRA",
+};
 
 export function getWarmupTilesForDiscipline(
   discipline: ChallengeDiscipline
@@ -125,6 +169,76 @@ export function getWarmupTilesForDiscipline(
     return THEORETICAL_WARMUP_TILES;
   }
   return PRACTICAL_WARMUP_TILES;
+}
+
+export function getWarmupTileLabel(
+  tile: WarmupFocusTile,
+  lang: AppLanguage
+): string {
+  if (lang === "en") return tile.labelEn;
+  if (lang === "de") return tile.labelDe;
+  return tile.labelRu;
+}
+
+export function resolveCanonicalFocusKey(
+  discipline: ChallengeDiscipline,
+  rawCategoryOrKey: string | null | undefined
+): string {
+  const raw = (rawCategoryOrKey ?? "").trim();
+  if (!raw || raw.toLowerCase() === "all" || raw.toLowerCase() === "mix") {
+    return "all";
+  }
+
+  const lower = raw.toLowerCase();
+  const mappedDomain = ENDGAME_CLASS_TO_DOMAIN[lower];
+  const candidate = mappedDomain ?? raw;
+  const candidateLower = candidate.toLowerCase();
+
+  const tiles = getWarmupTilesForDiscipline(discipline);
+  const matched = tiles.find(
+    (t) =>
+      t.focusKey.toLowerCase() === candidateLower ||
+      t.id.toLowerCase() === candidateLower
+  );
+
+  if (matched) {
+    return matched.focusKey;
+  }
+
+  // Fallback check across all tiles if a cross-discipline key was stored
+  const anyTile = [
+    ...TACTICS_WARMUP_TILES,
+    ...THEORETICAL_WARMUP_TILES,
+    ...PRACTICAL_WARMUP_TILES,
+  ].find(
+    (t) =>
+      t.focusKey.toLowerCase() === candidateLower ||
+      t.id.toLowerCase() === candidateLower
+  );
+
+  if (anyTile) {
+    const validInDiscipline = tiles.find(
+      (t) => t.focusKey.toLowerCase() === anyTile.focusKey.toLowerCase()
+    );
+    return validInDiscipline ? validInDiscipline.focusKey : "all";
+  }
+
+  return "all";
+}
+
+export function formatFocusLabel(
+  discipline: ChallengeDiscipline,
+  rawCategoryOrKey: string | null | undefined,
+  lang: AppLanguage
+): string {
+  const canonicalKey = resolveCanonicalFocusKey(discipline, rawCategoryOrKey);
+  const tiles = getWarmupTilesForDiscipline(discipline);
+  const matched =
+    tiles.find((t) => t.focusKey === canonicalKey) ?? tiles[0];
+  if (!matched) {
+    return "MIX";
+  }
+  return getWarmupTileLabel(matched, lang);
 }
 
 export interface ClubScheduleSlot {
@@ -418,9 +532,16 @@ export interface ClubSummaryDTO {
   published_challenges_count: number;
 }
 
+export interface UserChallengeHistoryItemDTO extends ClubChallengeItemDTO {
+  chat_id: string;
+  club_title: string;
+  completed_at: string;
+}
+
 export interface UserCabinetDTO {
   user: TeleUserDTO;
   stats: Record<ChallengeDiscipline, DisciplineAttemptStatsDTO>;
+  history: UserChallengeHistoryItemDTO[];
   clubs: ClubSummaryDTO[];
   my_clubs: ClubSummaryDTO[];
   owned_clubs_count: number;

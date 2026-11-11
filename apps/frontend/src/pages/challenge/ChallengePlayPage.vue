@@ -21,7 +21,7 @@ const router = useRouter();
 const boardStore = useBoardStore();
 const store = useChallengeSessionStore();
 const coach = useCoachAnalysis();
-const { t, disciplineTitle, difficultyTitle } = useI18n();
+const { t, disciplineTitle, difficultyTitle, focusTitle } = useI18n();
 const wasm = useStockfishWasm();
 
 const selectedSfMultipv = ref<number>(1);
@@ -250,7 +250,7 @@ onUnmounted(() => {
             </template>
           </span>
           <span class="rounded border border-border bg-elevated px-1.5 py-0.5 text-[11px] text-text-secondary">
-            {{ store.challenge.category }}
+            {{ focusTitle(store.challenge.discipline, store.challenge.category) }}
           </span>
         </div>
         <span class="text-xs font-semibold text-text-primary">

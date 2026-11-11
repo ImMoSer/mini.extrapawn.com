@@ -1,19 +1,19 @@
 import { and, desc, eq, ne, or } from "drizzle-orm";
 import {
+  ALL_DAYS_OF_WEEK,
   calculateAttemptPoints,
   createDefaultWeeklySchedule,
+  encodeChallengeStartParam,
+  encodeClubLeaderboardStartParam,
+  formatFocusLabel,
   MAX_OWNED_CLUBS_PER_USER,
   normalizeWeeklySchedule,
   roundPoints,
   type AppLanguage,
   type ChallengeDifficulty,
   type ChallengeDiscipline,
+  type ClubScheduleSlot,
   type DayOfWeekKey,
-  encodeChallengeStartParam,
-  encodeClubLeaderboardStartParam,
-  PRACTICAL_WARMUP_TILES,
-  TACTICS_WARMUP_TILES,
-  THEORETICAL_WARMUP_TILES,
 } from "shared";
 import { env } from "../config/env.js";
 import { db } from "../db/index.js";
@@ -77,115 +77,160 @@ interface TelegramUpdate {
   };
 }
 
-const DISCIPLINE_LABELS_RU: Record<ChallengeDiscipline, string> = {
-  tactics: "Тактика",
-  theoretical_endgames: "Теоретический эндшпиль",
-  practical_chess: "Практический эндшпиль",
-  finishhim: "Добивание (Finish Him)",
+const DISCIPLINE_LABELS: Record<
+  AppLanguage,
+  Record<ChallengeDiscipline, string>
+> = {
+  ru: {
+    tactics: "Тактика",
+    theoretical_endgames: "Теоретический эндшпиль",
+    practical_chess: "Практический эндшпиль",
+    finishhim: "Добивание (Finish Him)",
+  },
+  en: {
+    tactics: "Tactics",
+    theoretical_endgames: "Theoretical Endgame",
+    practical_chess: "Practical Endgame",
+    finishhim: "Finish Him",
+  },
+  de: {
+    tactics: "Taktik",
+    theoretical_endgames: "Endspieltheorie",
+    practical_chess: "Praktisches Endspiel",
+    finishhim: "Finish Him",
+  },
 };
 
-const DISCIPLINE_LABELS_EN: Record<ChallengeDiscipline, string> = {
-  tactics: "Tactics",
-  theoretical_endgames: "Theoretical Endgame",
-  practical_chess: "Practical Endgame",
-  finishhim: "Finish Him",
+const PLAIN_DIFFICULTY_LABELS: Record<
+  AppLanguage,
+  Record<ChallengeDifficulty, string>
+> = {
+  ru: {
+    Novice: "Новичок",
+    Pro: "Профи",
+    Master: "Мастер",
+  },
+  en: {
+    Novice: "Novice",
+    Pro: "Pro",
+    Master: "Master",
+  },
+  de: {
+    Novice: "Einsteiger",
+    Pro: "Profi",
+    Master: "Meister",
+  },
 };
 
-const DIFFICULTY_LABELS_RU: Record<ChallengeDifficulty, string> = {
-  Novice: "Новичок (Maia 1500)",
-  Pro: "Профи (Maia 2200)",
-  Master: "Мастер (MOZERO)",
+const DIFFICULTY_LABELS: Record<
+  AppLanguage,
+  Record<ChallengeDifficulty, string>
+> = {
+  ru: {
+    Novice: "Новичок (Maia 1500)",
+    Pro: "Профи (Maia 2200)",
+    Master: "Мастер (MOZERO)",
+  },
+  en: {
+    Novice: "Novice (Maia 1500)",
+    Pro: "Pro (Maia 2200)",
+    Master: "Master (MOZERO)",
+  },
+  de: {
+    Novice: "Einsteiger (Maia 1500)",
+    Pro: "Profi (Maia 2200)",
+    Master: "Meister (MOZERO)",
+  },
 };
 
-const DIFFICULTY_LABELS_EN: Record<ChallengeDifficulty, string> = {
-  Novice: "Novice (Maia 1500)",
-  Pro: "Pro (Maia 2200)",
-  Master: "Master (MOZERO)",
-};
-
-function formatCategoryLabel(
-  discipline: ChallengeDiscipline,
-  rawCategory: string,
-  lang: AppLanguage
-): string {
-  const allTiles = [
-    ...TACTICS_WARMUP_TILES,
-    ...THEORETICAL_WARMUP_TILES,
-    ...PRACTICAL_WARMUP_TILES,
-  ];
-  const matched = allTiles.find(
-    (t) =>
-      t.focusKey.toLowerCase() === rawCategory.toLowerCase() ||
-      t.id.toLowerCase() === rawCategory.toLowerCase()
-  );
-  if (matched) {
-    return lang === "en" ? matched.labelEn : matched.labelRu;
-  }
-  if (discipline === "finishhim" && rawCategory === "MIX") {
-    return lang === "en" ? "Material Conversion" : "Реализация перевеса";
-  }
-  return rawCategory || "MIX";
+function normalizeLang(raw: string | null | undefined): AppLanguage {
+  if (raw === "en" || raw === "de") return raw;
+  return "ru";
 }
 
 function buildChallengeCaption(
   puzzle: NormalizedChallengePuzzle,
-  lang: AppLanguage
+  rawLang: AppLanguage
 ): string {
-  const isEn = lang === "en";
-  const discLabel = isEn
-    ? DISCIPLINE_LABELS_EN[puzzle.discipline]
-    : DISCIPLINE_LABELS_RU[puzzle.discipline];
-
-  const plainDiffLabel = isEn
-    ? puzzle.difficulty
-    : puzzle.difficulty === "Novice"
-      ? "Новичок"
-      : puzzle.difficulty === "Pro"
-        ? "Профи"
-        : "Мастер";
+  const lang = normalizeLang(rawLang);
+  const discLabel = DISCIPLINE_LABELS[lang][puzzle.discipline];
+  const plainDiffLabel = PLAIN_DIFFICULTY_LABELS[lang][puzzle.difficulty];
 
   const diffLabel =
     puzzle.discipline === "tactics"
       ? plainDiffLabel
       : puzzle.discipline === "theoretical_endgames"
         ? `${plainDiffLabel} (MOZERO)`
-        : isEn
-          ? DIFFICULTY_LABELS_EN[puzzle.difficulty]
-          : DIFFICULTY_LABELS_RU[puzzle.difficulty];
+        : DIFFICULTY_LABELS[lang][puzzle.difficulty];
 
-  const categoryLabel = formatCategoryLabel(
+  const categoryLabel = formatFocusLabel(
     puzzle.discipline,
     puzzle.category,
     lang
   );
 
-  let goalLabel = isEn ? "Find the best continuation" : "Найти лучшее продолжение";
+  let goalLabel =
+    lang === "en"
+      ? "Find the best continuation"
+      : lang === "de"
+        ? "Beste Fortsetzung finden"
+        : "Найти лучшее продолжение";
+
   if (puzzle.discipline !== "tactics") {
     if (puzzle.objective === "hold_draw") {
-      goalLabel = isEn ? "Hold a draw against the bot" : "Удержать ничью против бота";
+      goalLabel =
+        lang === "en"
+          ? "Hold a draw against the bot"
+          : lang === "de"
+            ? "Remis gegen den Bot halten"
+            : "Удержать ничью против бота";
     } else {
-      goalLabel = isEn ? "Win against the bot" : "Победить бота";
+      goalLabel =
+        lang === "en"
+          ? "Win against the bot"
+          : lang === "de"
+            ? "Gegen den Bot gewinnen"
+            : "Победить бота";
     }
   } else if (puzzle.category.toLowerCase().includes("mate")) {
-    goalLabel = isEn ? "Deliver checkmate" : "Поставить мат";
+    goalLabel =
+      lang === "en"
+        ? "Deliver checkmate"
+        : lang === "de"
+          ? "Matt setzen"
+          : "Поставить мат";
   }
 
   const turnLabel =
     puzzle.userColor === "white"
-      ? isEn
+      ? lang === "en"
         ? "White to move ⚪"
-        : "Белых ⚪"
-      : isEn
+        : lang === "de"
+          ? "Weiß am Zug ⚪"
+          : "Белых ⚪"
+      : lang === "en"
         ? "Black to move ⚫"
-        : "Черных ⚫";
+        : lang === "de"
+          ? "Schwarz am Zug ⚫"
+          : "Черных ⚫";
 
-  if (isEn) {
+  if (lang === "en") {
     return [
       `♟ <b>Discipline:</b> ${discLabel}`,
       `⚙️ <b>Difficulty:</b> ${diffLabel}`,
       `🎯 <b>Category:</b> ${categoryLabel}`,
       `⚔️ <b>Goal:</b> ${goalLabel}`,
       `⏳ <b>Turn:</b> ${turnLabel}`,
+    ].join("\n");
+  }
+
+  if (lang === "de") {
+    return [
+      `♟ <b>Disziplin:</b> ${discLabel}`,
+      `⚙️ <b>Stufe:</b> ${diffLabel}`,
+      `🎯 <b>Fokus:</b> ${categoryLabel}`,
+      `⚔️ <b>Ziel:</b> ${goalLabel}`,
+      `⏳ <b>Am Zug:</b> ${turnLabel}`,
     ].join("\n");
   }
 
@@ -287,43 +332,41 @@ export const telegramBotService = {
       throw new Error(`[TelegramBot] Club ${chatId} is blocked`);
     }
 
-    const allowedDisciplines = (
-      club.filterDisciplines?.length
-        ? club.filterDisciplines
-        : ["tactics", "theoretical_endgames", "practical_chess", "finishhim"]
-    ) as ChallengeDiscipline[];
+    // Resolve slot from weeklySchedule when override is not explicitly passed,
+    // so discipline + difficulty + focus_group + focus_key + objective always stay synchronized.
+    const schedule = normalizeWeeklySchedule(club.weeklySchedule);
+    const zoned = getClubZonedTime(new Date(), club.timezone);
+    const todaySlots = schedule[zoned.day]?.enabled
+      ? schedule[zoned.day].slots
+      : [];
+    const activeHourSlot = todaySlots.find(
+      (s) => zoned.hour >= s.from_hour && zoned.hour < s.to_hour
+    );
+    const allEnabledSlots: ClubScheduleSlot[] = [];
+    for (const day of ALL_DAYS_OF_WEEK) {
+      if (schedule[day].enabled) {
+        allEnabledSlots.push(...schedule[day].slots);
+      }
+    }
+    const fallbackSlot =
+      activeHourSlot ??
+      todaySlots[0] ??
+      (allEnabledSlots.length > 0
+        ? allEnabledSlots[Math.floor(Math.random() * allEnabledSlots.length)]
+        : undefined);
 
-    const allowedDifficulties = (
-      club.filterDifficulties?.length
-        ? club.filterDifficulties
-        : ["Novice", "Pro", "Master"]
-    ) as ChallengeDifficulty[];
+    const chosenDiscipline: ChallengeDiscipline =
+      override?.discipline ?? fallbackSlot?.discipline ?? "tactics";
 
-    const chosenDiscipline =
-      override?.discipline ||
-      allowedDisciplines[
-        Math.floor(Math.random() * allowedDisciplines.length)
-      ] ||
-      "tactics";
+    const chosenDifficulty: ChallengeDifficulty =
+      override?.difficulty ?? fallbackSlot?.difficulty ?? "Novice";
 
-    const chosenDifficulty =
-      override?.difficulty ||
-      allowedDifficulties[
-        Math.floor(Math.random() * allowedDifficulties.length)
-      ] ||
-      "Novice";
-
-    const focusKeys = club.filterFocusKeys?.length
-      ? club.filterFocusKeys
-      : ["all"];
     const chosenFocusGroup =
-      override?.focusGroup || club.filterFocusGroup || "all";
+      override?.focusGroup ?? fallbackSlot?.focus_group ?? "all";
     const chosenFocusKey =
-      override?.focusKey ||
-      focusKeys[Math.floor(Math.random() * focusKeys.length)] ||
-      "all";
+      override?.focusKey ?? fallbackSlot?.focus_key ?? "all";
     const chosenObjective =
-      override?.objective || club.filterObjective || "all";
+      override?.objective ?? fallbackSlot?.objective ?? "all";
 
     // Get already published puzzle IDs in this club for this discipline
     const previousRows = await db
@@ -358,7 +401,7 @@ export const telegramBotService = {
       lastMoveUci: puzzle.lastMoveUci,
     });
 
-    const lang = (club.language || "ru") as AppLanguage;
+    const lang = normalizeLang(club.language);
     const caption = buildChallengeCaption(puzzle, lang);
     const solveStartParam = encodeChallengeStartParam(
       puzzle.discipline,
@@ -368,8 +411,18 @@ export const telegramBotService = {
     );
     const recordsStartParam = encodeClubLeaderboardStartParam(chatId);
 
-    const solveBtnText = lang === "en" ? "🔥 SOLVE" : "🔥 ЗАТАЩИТЬ";
-    const tableBtnText = lang === "en" ? "🏆 TABLE" : "🏆 ТАБЛИЦА";
+    const solveBtnText =
+      lang === "en"
+        ? "🔥 SOLVE"
+        : lang === "de"
+          ? "🔥 LÖSEN"
+          : "🔥 ЗАТАЩИТЬ";
+    const tableBtnText =
+      lang === "en"
+        ? "🏆 TABLE"
+        : lang === "de"
+          ? "🏆 TABELLE"
+          : "🏆 ТАБЛИЦА";
 
     const tgMessageId = await sendTelegramPhoto({
       chatId,
@@ -483,13 +536,21 @@ export const telegramBotService = {
       .limit(1);
 
     const seconds = Math.round((params.timeMs / 1000) * 10) / 10;
-    const isEn = club.language === "en";
-    const text = isEn
-      ? `${params.username} 🤝\nAttempts - ${params.attempts}\nSeconds - ${seconds}`
-      : `${params.username} 🤝\nПопыток - ${params.attempts}\nСекунд - ${seconds}`;
+    const lang = normalizeLang(club.language);
+    const text =
+      lang === "en"
+        ? `${params.username} 🤝\nAttempts - ${params.attempts}\nSeconds - ${seconds}`
+        : lang === "de"
+          ? `${params.username} 🤝\nVersuche - ${params.attempts}\nSekunden - ${seconds}`
+          : `${params.username} 🤝\nПопыток - ${params.attempts}\nСекунд - ${seconds}`;
 
     const recordsStartParam = encodeClubLeaderboardStartParam(params.chatId);
-    const tableBtnText = isEn ? "ТАБЛИЦА / TABLE" : "ТАБЛИЦА";
+    const tableBtnText =
+      lang === "en"
+        ? "🏆 TABLE"
+        : lang === "de"
+          ? "🏆 TABELLE"
+          : "🏆 ТАБЛИЦА";
 
     const payload: Record<string, unknown> = {
       chat_id: params.chatId,
@@ -596,20 +657,27 @@ export const telegramBotService = {
     }
 
     const top10 = sorted.slice(0, 10);
-    const isEn = club.language === "en";
+    const lang = normalizeLang(club.language);
     const lines = top10.map((item, idx) => {
       const medal =
         idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`;
       const pts = roundPoints(item.points);
       const sec = Math.round((item.timeMs / 1000) * 10) / 10;
-      return isEn
-        ? `${medal} <b>${item.displayName}</b> — <b>${pts} pts</b> (${item.solved} solved, ${sec}s)`
-        : `${medal} <b>${item.displayName}</b> — <b>${pts} очк.</b> (решено: ${item.solved}, ${sec}с)`;
+      if (lang === "en") {
+        return `${medal} <b>${item.displayName}</b> — <b>${pts} pts</b> (${item.solved} solved, ${sec}s)`;
+      }
+      if (lang === "de") {
+        return `${medal} <b>${item.displayName}</b> — <b>${pts} Pkt.</b> (${item.solved} gelöst, ${sec}s)`;
+      }
+      return `${medal} <b>${item.displayName}</b> — <b>${pts} очк.</b> (решено: ${item.solved}, ${sec}с)`;
     });
 
-    const text = isEn
-      ? `🏆 <b>${club.title} — Top Players</b>\n\n${lines.join("\n")}`
-      : `🏆 <b>${club.title} — Лидеры клуба</b>\n\n${lines.join("\n")}`;
+    const text =
+      lang === "en"
+        ? `🏆 <b>${club.title} — Top Players</b>\n\n${lines.join("\n")}`
+        : lang === "de"
+          ? `🏆 <b>${club.title} — Top-Spieler</b>\n\n${lines.join("\n")}`
+          : `🏆 <b>${club.title} — Лидеры клуба</b>\n\n${lines.join("\n")}`;
 
     const recordsStartParam = encodeClubLeaderboardStartParam(chatId);
     const payload: Record<string, unknown> = {
@@ -620,7 +688,12 @@ export const telegramBotService = {
         inline_keyboard: [
           [
             {
-              text: isEn ? "🏆 FULL LEADERBOARD" : "🏆 ВСЯ ТАБЛИЦА",
+              text:
+                lang === "en"
+                  ? "🏆 FULL LEADERBOARD"
+                  : lang === "de"
+                    ? "🏆 GESAMTE RANGLISTE"
+                    : "🏆 ВСЯ ТАБЛИЦА",
               url: `https://t.me/${env.BOT_USERNAME}?startapp=${recordsStartParam}`,
             },
           ],
@@ -1066,18 +1139,25 @@ async function notifyAutoPauseReplyOnce(
 ): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) return;
 
-  const isEn = club.language === "en";
-  const text = isEn
-    ? [
-        `⏸ <b>Auto-Paused</b>`,
-        `This challenge has not been solved (or surrendered) by anyone yet. Scheduled challenges are paused so we don't spam the chat.`,
-        `Solve or surrender the active challenge to automatically resume the schedule!`,
-      ].join("\n")
-    : [
-        `⏸ <b>Бот встал на авто-паузу</b>`,
-        `Этот челлендж пока никто не решил (и не сдался). Автоматическая публикация приостановлена, чтобы не спамить в чате.`,
-        `Как только кто-то затащит челлендж или сдастся — расписание продолжится автоматически!`,
-      ].join("\n");
+  const lang = normalizeLang(club.language);
+  const text =
+    lang === "en"
+      ? [
+          `⏸ <b>Auto-Paused</b>`,
+          `This challenge has not been solved (or surrendered) by anyone yet. Scheduled challenges are paused so we don't spam the chat.`,
+          `Solve or surrender the active challenge to automatically resume the schedule!`,
+        ].join("\n")
+      : lang === "de"
+        ? [
+            `⏸ <b>Auto-Pause</b>`,
+            `Diese Challenge wurde noch von niemandem gelöst (oder aufgegeben). Geplante Challenges sind pausiert, um den Chat nicht zu überfluten.`,
+            `Sobald jemand die aktive Challenge löst oder aufgibt, läuft der Zeitplan automatisch weiter!`,
+          ].join("\n")
+        : [
+            `⏸ <b>Бот встал на авто-паузу</b>`,
+            `Этот челлендж пока никто не решил (и не сдался). Автоматическая публикация приостановлена, чтобы не спамить в чате.`,
+            `Как только кто-то затащит челлендж или сдастся — расписание продолжится автоматически!`,
+          ].join("\n");
 
   const solveStartParam = encodeChallengeStartParam(
     unresolvedChallenge.discipline as ChallengeDiscipline,
@@ -1094,7 +1174,12 @@ async function notifyAutoPauseReplyOnce(
       inline_keyboard: [
         [
           {
-            text: isEn ? "🔥 SOLVE ACTIVE" : "🔥 ЗАТАЩИТЬ ЧЕЛЛЕНДЖ",
+            text:
+              lang === "en"
+                ? "🔥 SOLVE ACTIVE"
+                : lang === "de"
+                  ? "🔥 AKTIVE CHALLENGE LÖSEN"
+                  : "🔥 ЗАТАЩИТЬ ЧЕЛЛЕНДЖ",
             url: `https://t.me/${env.BOT_USERNAME}?startapp=${solveStartParam}`,
           },
         ],

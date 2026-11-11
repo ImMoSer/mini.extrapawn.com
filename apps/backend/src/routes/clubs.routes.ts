@@ -12,6 +12,7 @@ import {
   type UpdateClubSettingsRequest,
 } from "shared";
 import { telegramBotService } from "../bot/telegramBot.service.js";
+import { env } from "../config/env.js";
 import { db } from "../db/index.js";
 import { challengeAttempts, clubAdmins, clubs } from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
@@ -25,6 +26,21 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
       const periodDays = 30;
       const sinceDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
       const viewerId = req.user.telegramId;
+
+      // Ensure official EXTRAPAWNCLUB row always exists so /clubs is never empty
+      await db
+        .insert(clubs)
+        .values({
+          chatId: env.DEFAULT_CLUB_CHAT_ID,
+          title: env.DEFAULT_CLUB_TITLE,
+          username: "EXTRAPAWNCLUB",
+          ownerTelegramId: env.SUPERADMIN_TELEGRAM_ID,
+          topicThreadId: env.DEFAULT_CLUB_THREAD_ID,
+          isDefault: true,
+          isActive: true,
+          status: "active",
+        })
+        .onConflictDoNothing();
 
       const clubRows = await db
         .select()
@@ -133,9 +149,6 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       rows.sort((a, b) => {
-        if (b.average_points !== a.average_points) {
-          return b.average_points - a.average_points;
-        }
         if (b.total_points !== a.total_points) {
           return b.total_points - a.total_points;
         }

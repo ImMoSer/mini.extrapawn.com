@@ -19,6 +19,7 @@ export const useCabinetStore = defineStore("cabinet", () => {
 
   const currentUser = computed(() => data.value?.user ?? null);
   const isSuperadmin = computed(() => Boolean(data.value?.user.is_superadmin));
+  const history = computed(() => data.value?.history ?? []);
   const clubs = computed(() => data.value?.clubs ?? []);
   const myClubs = computed(
     () =>
@@ -106,6 +107,7 @@ export const useCabinetStore = defineStore("cabinet", () => {
     selectedChatId,
     currentUser,
     isSuperadmin,
+    history,
     clubs,
     myClubs,
     ownedClubsCount,

@@ -11,7 +11,7 @@ import { useI18n } from "@/shared/i18n/useI18n";
 
 const route = useRoute();
 const router = useRouter();
-const { t, disciplineTitle, difficultyTitle } = useI18n();
+const { t, disciplineTitle, difficultyTitle, focusTitle } = useI18n();
 
 const data = ref<ClubRecordsResponseDTO | null>(null);
 const isLoading = ref(false);
@@ -211,12 +211,12 @@ onMounted(() => {
                 </div>
                 <div class="mt-0.5 text-[11px] text-text-secondary">
                   <span class="font-semibold text-text-primary/90">
-                    {{ item.category || "MIX" }}
+                    {{ focusTitle(item.discipline, item.category) }}
                   </span>
                   <span> • {{ difficultyTitle(item.difficulty) }}</span>
                 </div>
               </div>
-              <span class="shrink-0 font-bold text-brand">ЗАТАЩИТЬ →</span>
+              <span class="shrink-0 font-bold text-brand">{{ t("go_solve_cta") }}</span>
             </div>
 
             <div
@@ -267,7 +267,7 @@ onMounted(() => {
                 </div>
                 <div class="mt-0.5 text-[11px] text-text-secondary">
                   <span class="font-semibold text-text-primary/90">
-                    {{ item.category || "MIX" }}
+                    {{ focusTitle(item.discipline, item.category) }}
                   </span>
                   <span> • {{ difficultyTitle(item.difficulty) }}</span>
                 </div>
@@ -299,7 +299,7 @@ onMounted(() => {
                   </strong>
                 </template>
               </span>
-              <span class="font-semibold text-text-primary">Анализ →</span>
+              <span class="font-semibold text-text-primary">{{ t("records_analyze_cta") }}</span>
             </div>
           </button>
         </div>

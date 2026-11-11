@@ -1,24 +1,47 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import type { ClubsCompetitionResponseDTO } from "shared";
+import {
+  getOfficialClubInviteUrl,
+  type ClubsCompetitionResponseDTO,
+} from "shared";
+import { useCabinetStore } from "@/entities/cabinet/model/cabinet.store";
 import { apiRequest } from "@/shared/api/httpClient";
 import { useI18n } from "@/shared/i18n/useI18n";
+import { openTelegramUrl } from "@/shared/lib/telegram";
 
 const router = useRouter();
-const { t } = useI18n();
+const cabinetStore = useCabinetStore();
+const { lang, t } = useI18n();
 
 const data = ref<ClubsCompetitionResponseDTO | null>(null);
 const isLoading = ref(false);
+const termsAccepted = ref(false);
 
 const maxClubTotal = computed(() => {
   if (!data.value?.clubs.length) return 1;
   return Math.max(1, ...data.value.clubs.map((c) => c.total_points));
 });
 
+const addBotDeepLink = computed(() => {
+  const botUsername = cabinetStore.data?.bot_username || "ExtraPawnTeleBot";
+  return `https://t.me/${botUsername}?startgroup=true&admin=manage_topics+post_messages+pin_messages`;
+});
+
+const isClubLimitReached = computed(
+  () =>
+    !cabinetStore.isSuperadmin &&
+    cabinetStore.ownedClubsCount >= cabinetStore.maxOwnedClubs
+);
+
 function formatScore(val: number): string {
   if (Number.isInteger(val)) return String(val);
   return val.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function handleAddBotToGroup() {
+  if (!termsAccepted.value || isClubLimitReached.value) return;
+  openTelegramUrl(addBotDeepLink.value);
 }
 
 async function fetchClubsLeaderboard() {
@@ -34,6 +57,9 @@ async function fetchClubsLeaderboard() {
 
 onMounted(() => {
   void fetchClubsLeaderboard();
+  if (!cabinetStore.data) {
+    void cabinetStore.fetchCabinet();
+  }
 });
 </script>
 
@@ -87,18 +113,17 @@ onMounted(() => {
       </div>
 
       <div
-        v-else-if="data && !data.clubs.length"
-        class="py-8 text-center text-xs text-text-secondary"
-      >
-        Пока нет зарегистрированных клубов.
-      </div>
-
-      <button
         v-for="club in data?.clubs ?? []"
         :key="club.chat_id"
-        type="button"
-        class="flex flex-col gap-2 py-3.5 text-left transition hover:bg-elevated/50"
+        role="button"
+        tabindex="0"
+        class="flex cursor-pointer flex-col gap-2 py-3.5 text-left transition hover:bg-elevated/50"
         @click="
+          router.push(
+            `/challenge/records/${encodeURIComponent(club.chat_id)}`
+          )
+        "
+        @keydown.enter="
           router.push(
             `/challenge/records/${encodeURIComponent(club.chat_id)}`
           )
@@ -127,12 +152,28 @@ onMounted(() => {
                 >
                   OFFICIAL
                 </span>
-                <span
-                  v-if="club.is_admin && !club.is_default"
-                  class="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold text-accent uppercase"
+                <button
+                  v-if="club.is_default"
+                  type="button"
+                  class="inline-flex min-h-6 items-center gap-1 rounded border border-brand/50 bg-brand/15 px-2 py-0.5 text-[10px] font-bold text-brand transition hover:bg-brand hover:text-on-brand"
+                  @click.stop="openTelegramUrl(getOfficialClubInviteUrl(lang))"
                 >
-                  OWNER
-                </span>
+                  {{ t("clubs_join_official_btn") }}
+                </button>
+                <button
+                  v-if="club.is_admin"
+                  type="button"
+                  class="inline-flex min-h-6 items-center gap-1.5 rounded border border-accent/40 bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent uppercase transition hover:border-accent hover:bg-accent/25"
+                  :title="t('cabinet_open_settings')"
+                  @click.stop="
+                    router.push(
+                      `/club-settings/${encodeURIComponent(club.chat_id)}`
+                    )
+                  "
+                >
+                  <span>OWNER / ADMIN</span>
+                  <span class="text-xs leading-none">⚙️</span>
+                </button>
                 <span
                   v-else-if="club.is_member && !club.is_default"
                   class="rounded bg-info/15 px-1.5 py-0.5 text-[10px] font-bold text-info uppercase"
@@ -153,30 +194,22 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Discipline Split (T / E / P / F) + Arithmetic Mean -->
+          <!-- Discipline Split (T / E / P / F) + Total Club Points Box -->
           <div class="flex items-center gap-3 font-condensed">
-            <div class="text-right">
-              <div class="text-xs font-bold tracking-wide">
-                <span class="text-success">{{ formatScore(club.tactics_points) }}</span>
-                <span class="mx-1 text-text-secondary">/</span>
-                <span class="text-accent">{{ formatScore(club.theoretical_points) }}</span>
-                <span class="mx-1 text-text-secondary">/</span>
-                <span class="text-info">{{ formatScore(club.practical_points) }}</span>
-                <span class="mx-1 text-text-secondary">/</span>
-                <span class="text-warning">{{ formatScore(club.finishhim_points) }}</span>
-              </div>
-              <div class="text-[10px] text-text-secondary">
-                Σ {{ formatScore(club.total_points) }} PTS
-              </div>
+            <div class="text-right text-xs font-bold tracking-wide">
+              <span class="text-success">{{ formatScore(club.tactics_points) }}</span>
+              <span class="mx-1 text-text-secondary">/</span>
+              <span class="text-accent">{{ formatScore(club.theoretical_points) }}</span>
+              <span class="mx-1 text-text-secondary">/</span>
+              <span class="text-info">{{ formatScore(club.practical_points) }}</span>
+              <span class="mx-1 text-text-secondary">/</span>
+              <span class="text-warning">{{ formatScore(club.finishhim_points) }}</span>
             </div>
 
-            <div class="rounded-lg border border-brand/40 bg-elevated px-2.5 py-1 text-center">
-              <div class="text-[9px] font-bold tracking-wider text-text-secondary uppercase">
-                {{ t("clubs_avg_label") }}
-              </div>
-              <div class="text-sm font-bold text-brand">
-                {{ formatScore(club.average_points) }}
-              </div>
+            <div class="flex min-w-11 items-center justify-center rounded-lg border border-brand/40 bg-elevated px-2.5 py-1.5 text-center">
+              <span class="text-sm font-bold text-brand">
+                {{ formatScore(club.total_points) }}
+              </span>
             </div>
           </div>
         </div>
@@ -212,8 +245,53 @@ onMounted(() => {
             }"
           ></div>
         </div>
-      </button>
+      </div>
+    </section>
+
+    <!-- 1-Click Add Bot to Supergroup Onboarding (Placed below the last club) -->
+    <section class="glass flex flex-col gap-3 p-4">
+      <div class="flex flex-col gap-1">
+        <h2 class="text-xs font-bold tracking-wider text-brand uppercase">
+          {{ t("cabinet_add_bot_title") }}
+        </h2>
+        <p class="text-xs leading-relaxed text-text-secondary">
+          {{ t("cabinet_add_bot_desc") }}
+        </p>
+      </div>
+
+      <div
+        v-if="isClubLimitReached"
+        class="rounded-lg border border-warning/40 bg-warning/15 p-3 text-xs font-semibold text-warning"
+      >
+        ⚠️ {{ t("cabinet_limit_reached") }}
+      </div>
+
+      <template v-else>
+        <label
+          class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-elevated p-3 text-xs text-text-secondary"
+        >
+          <input
+            v-model="termsAccepted"
+            type="checkbox"
+            class="mt-0.5 h-4 w-4 accent-brand"
+          />
+          <span>{{ t("cabinet_terms_checkbox") }}</span>
+        </label>
+
+        <button
+          type="button"
+          :disabled="!termsAccepted"
+          class="w-full rounded-lg py-2.5 text-sm font-bold transition"
+          :class="
+            termsAccepted
+              ? 'bg-brand text-on-brand hover:bg-brand-deep cursor-pointer'
+              : 'bg-elevated text-text-disabled cursor-not-allowed border border-border'
+          "
+          @click="handleAddBotToGroup"
+        >
+          {{ t("cabinet_add_bot_btn") }}
+        </button>
+      </template>
     </section>
   </div>
 </template>
-

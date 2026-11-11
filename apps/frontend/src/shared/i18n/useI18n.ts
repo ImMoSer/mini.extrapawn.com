@@ -1,5 +1,10 @@
 import { computed, ref } from "vue";
-import type { AppLanguage, ChallengeDifficulty, ChallengeDiscipline } from "shared";
+import {
+  formatFocusLabel,
+  type AppLanguage,
+  type ChallengeDifficulty,
+  type ChallengeDiscipline,
+} from "shared";
 
 const currentLang = ref<AppLanguage>("ru");
 
@@ -27,9 +32,10 @@ const DICT = {
     stats_failed: "Провалов",
     stats_points: "Очков",
     clubs_title: "СОРЕВНОВАНИЕ КЛУБОВ (ЗА 30 ДНЕЙ)",
-    clubs_subtitle: "Тактика / Теория / Практика / Добивание и среднее арифметическое",
+    clubs_subtitle: "Тактика / Теория / Практика / Добивание • Сумма очков игроков клуба",
     clubs_avg_label: "СРЕДНЕЕ",
     clubs_scoring_hint: "Начисление очков: 1-я попытка = 1.0 • 2-я = 0.5 • 3-я = 0.33 • 4-я = 0.25 (1 / попыток)",
+    clubs_join_official_btn: "💬 Вступить ↗",
     cabinet_my_stats: "МОЯ СТАТИСТИКА (ВСЕ СЛОЖНОСТИ)",
     cabinet_clubs_title: "ШАХМАТНЫЕ КЛУБЫ",
     cabinet_add_bot_title: "ПОДКЛЮЧИТЬ БОТА В СВОЙ ЧАТ",
@@ -42,6 +48,10 @@ const DICT = {
     cabinet_open_settings: "Настроить бота",
     cabinet_join_default_club: "Вступить в родной клуб EXTRAPAWNCLUB",
     cabinet_tab_stats: "📊 Статистика",
+    cabinet_tab_history: "📜 История",
+    cabinet_history_title: "ИСТОРИЯ ВЫПОЛНЕННЫХ ЧЕЛЛЕНДЖЕЙ",
+    cabinet_history_empty: "Вы пока не завершили ни одного челленджа.",
+    records_analyze_cta: "Анализ →",
     cabinet_tab_my_clubs: "⚙️ Мои клубы",
     cabinet_my_clubs_empty:
       "У вас пока нет собственных подключенных клубов. Подключите бота к своей супергруппе ниже!",
@@ -102,6 +112,10 @@ const DICT = {
     settings_save_btn: "Сохранить настройки клуба",
     settings_publish_now_btn: "🚀 Опубликовать челлендж сейчас",
     settings_saved_ok: "Настройки сохранены!",
+    settings_slot_discipline: "Дисциплина (одна на интервал)",
+    settings_slot_difficulty: "Сложность",
+    settings_slot_focus: "Тема / Фокус",
+    settings_bot_language: "Язык постов бота в Telegram",
   },
   en: {
     nav_cabinet: "Cabinet",
@@ -126,9 +140,10 @@ const DICT = {
     stats_failed: "Failed",
     stats_points: "Points",
     clubs_title: "INTER-CLUB CHAMPIONSHIP (LAST 30 DAYS)",
-    clubs_subtitle: "Tactics / Theoretical / Practical / Finish Him & Arithmetic Mean",
+    clubs_subtitle: "Tactics / Theoretical / Practical / Finish Him • Total Club Points",
     clubs_avg_label: "AVERAGE",
     clubs_scoring_hint: "Scoring: 1st try = 1.0 • 2nd = 0.5 • 3rd = 0.33 • 4th = 0.25 (1 / attempts)",
+    clubs_join_official_btn: "💬 Join Club ↗",
     cabinet_my_stats: "MY STATS (ALL DIFFICULTIES)",
     cabinet_clubs_title: "CHESS CLUBS",
     cabinet_add_bot_title: "ADD BOT TO YOUR SUPERGROUP",
@@ -141,6 +156,10 @@ const DICT = {
     cabinet_open_settings: "Bot Settings",
     cabinet_join_default_club: "Open Native Club EXTRAPAWNCLUB",
     cabinet_tab_stats: "📊 Statistics",
+    cabinet_tab_history: "📜 History",
+    cabinet_history_title: "COMPLETED CHALLENGES HISTORY",
+    cabinet_history_empty: "You haven't completed any challenges yet.",
+    records_analyze_cta: "Analyze →",
     cabinet_tab_my_clubs: "⚙️ My Clubs",
     cabinet_my_clubs_empty:
       "You haven't connected any clubs of your own yet. Add the bot to your supergroup below!",
@@ -201,6 +220,10 @@ const DICT = {
     settings_save_btn: "Save Club Settings",
     settings_publish_now_btn: "🚀 Publish Challenge Now",
     settings_saved_ok: "Settings saved!",
+    settings_slot_discipline: "Discipline (one per interval)",
+    settings_slot_difficulty: "Difficulty",
+    settings_slot_focus: "Theme / Focus",
+    settings_bot_language: "Bot Language in Telegram",
   },
   de: {
     nav_cabinet: "Profil",
@@ -225,9 +248,10 @@ const DICT = {
     stats_failed: "Fehler",
     stats_points: "Punkte",
     clubs_title: "KLUB-MEISTERSCHAFT (LETZTE 30 TAGE)",
-    clubs_subtitle: "Taktik / Theorie / Praxis / Finish Him & Durchschnitt",
+    clubs_subtitle: "Taktik / Theorie / Praxis / Finish Him • Gesamtpunkte des Klubs",
     clubs_avg_label: "SCHNITT",
     clubs_scoring_hint: "Punkte: 1. Versuch = 1.0 • 2. = 0.5 • 3. = 0.33 • 4. = 0.25 (1 / Versuche)",
+    clubs_join_official_btn: "💬 Beitreten ↗",
     cabinet_my_stats: "MEINE STATISTIK (ALLE STUFEN)",
     cabinet_clubs_title: "SCHACHKLUBS",
     cabinet_add_bot_title: "BOT ZUR SUPERGRUPPE HINZUFÜGEN",
@@ -240,6 +264,10 @@ const DICT = {
     cabinet_open_settings: "Bot-Einstellungen",
     cabinet_join_default_club: "Stammklub EXTRAPAWNCLUB öffnen",
     cabinet_tab_stats: "📊 Statistik",
+    cabinet_tab_history: "📜 Verlauf",
+    cabinet_history_title: "ABGESCHLOSSENE CHALLENGES",
+    cabinet_history_empty: "Sie haben noch keine Challenges abgeschlossen.",
+    records_analyze_cta: "Analyse →",
     cabinet_tab_my_clubs: "⚙️ Meine Klubs",
     cabinet_my_clubs_empty:
       "Sie haben noch keine eigenen Klubs verbunden. Fügen Sie den Bot unten Ihrer Supergruppe hinzu!",
@@ -300,6 +328,10 @@ const DICT = {
     settings_save_btn: "Klub-Einstellungen speichern",
     settings_publish_now_btn: "🚀 Challenge jetzt veröffentlichen",
     settings_saved_ok: "Einstellungen gespeichert!",
+    settings_slot_discipline: "Disziplin (eine pro Intervall)",
+    settings_slot_difficulty: "Schwierigkeit",
+    settings_slot_focus: "Thema / Fokus",
+    settings_bot_language: "Sprache der Bot-Posts in Telegram",
   },
 } as const;
 
@@ -329,12 +361,20 @@ export function useI18n() {
     return t(`diff_${d}` as TranslationKey);
   }
 
+  function focusTitle(
+    d: ChallengeDiscipline,
+    rawCategory: string | null | undefined
+  ): string {
+    return formatFocusLabel(d, rawCategory, lang.value);
+  }
+
   return {
     lang,
     setLanguage,
     t,
     disciplineTitle,
     difficultyTitle,
+    focusTitle,
   };
 }
 

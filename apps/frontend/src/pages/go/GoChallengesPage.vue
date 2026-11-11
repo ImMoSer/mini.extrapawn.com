@@ -6,7 +6,7 @@ import { apiRequest } from "@/shared/api/httpClient";
 import { useI18n } from "@/shared/i18n/useI18n";
 
 const router = useRouter();
-const { t, disciplineTitle, difficultyTitle } = useI18n();
+const { t, disciplineTitle, difficultyTitle, focusTitle } = useI18n();
 
 const challenges = ref<GoActiveChallengeItemDTO[]>([]);
 const loading = ref(true);
@@ -109,7 +109,7 @@ onMounted(() => {
               </span>
             </div>
             <div class="mt-0.5 text-[11px] text-text-secondary">
-              {{ item.category || item.domain || "MIX" }} •
+              {{ focusTitle(item.discipline, item.category || item.domain) }} •
               {{ difficultyTitle(item.difficulty) }}
             </div>
           </div>
