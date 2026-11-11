@@ -181,7 +181,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 ### 6.1. Навигация, Telegram WebApp SDK и визуал
 
 - **Верхняя шапка:** центрированный логотип `♟ EXTRAPAWN`.
-- **Нижнее фиксированное меню:** `Кабинет | 🏆 Клубы | GO | ℹ️ О нас | BOSS | RU` (с поддержкой `max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px))`; `Настройки` доступны со страницы клуба и из списка клубов).
+- **Нижнее фиксированное меню:** `Кабинет | 🏆 Клубы | GO | ℹ️ О нас | RU` (с поддержкой `max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px))`; кнопка `BOSS` перенесена в карточку профиля в `Кабинете`, а `Настройки` доступны со страницы клуба и из списка клубов).
 - **Telegram WebApp SDK (`telegram.ts` & `telegramAuth.ts`):**
   - Инициализация `tg.ready()`, `tg.expand()`, `tg.disableVerticalSwipes()` (защита от сворачивания окна при перетаскивании фигур).
   - Синхронизация системных цветов рамки Telegram (`setHeaderColor`, `setBackgroundColor`, `setBottomBarColor`) из CSS-токенов `--theme-surface` и `--theme-canvas`.

@@ -273,7 +273,7 @@ async function callTelegramJson<T>(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(attempt > 1 ? { Connection: "close" } : {}),
+          Connection: "close",
         },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(timeoutMs),
@@ -345,7 +345,7 @@ async function sendTelegramPhoto(params: {
 
       const res = await fetch(url, {
         method: "POST",
-        headers: attempt > 1 ? { Connection: "close" } : undefined,
+        headers: { Connection: "close" },
         body: form,
         signal: AbortSignal.timeout(25_000),
       });
@@ -1391,7 +1391,10 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
       }
     }
   } catch (err) {
-    console.error("[TelegramBot] Polling error:", err);
+    console.warn(
+      "[TelegramBot] Polling transient network error (will retry in 2s):",
+      err instanceof Error ? err.message : err
+    );
   }
 }
 

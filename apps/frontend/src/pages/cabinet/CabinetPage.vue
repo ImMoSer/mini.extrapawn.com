@@ -72,12 +72,14 @@ onMounted(() => {
             <h1 class="text-base font-bold text-text-primary">
               {{ cabinetStore.currentUser?.first_name || "Chess Player" }}
             </h1>
-            <span
+            <button
               v-if="cabinetStore.isSuperadmin"
-              class="rounded bg-accent/20 px-2 py-0.5 text-[10px] font-bold tracking-wider text-accent uppercase"
+              type="button"
+              class="rounded-md border border-accent/40 bg-accent/15 px-2.5 py-1 text-xs font-bold tracking-wider text-accent uppercase transition hover:border-accent hover:bg-accent hover:text-on-brand"
+              @click="router.push('/super-admin')"
             >
-              BOSS
-            </span>
+              {{ t("nav_superadmin") }}
+            </button>
           </div>
           <p class="text-xs text-text-secondary">
             {{

@@ -12,7 +12,7 @@ import { uciLineToSan } from "@/entities/chess/lib/chessPosition";
 import { useChallengeSessionStore } from "@/features/challenge-play/model/challengeSession.store";
 import { useCoachAnalysis } from "@/features/challenge-play/model/useCoachAnalysis";
 import CompactCoachPanel from "@/features/challenge-play/ui/CompactCoachPanel.vue";
-import { useI18n, type TranslationKey } from "@/shared/i18n/useI18n";
+import { useI18n } from "@/shared/i18n/useI18n";
 import type { CoachDrawShape } from "@/shared/lib/coach/visualizer";
 import { useStockfishWasm } from "@/shared/lib/stockfishWasm";
 
@@ -58,13 +58,6 @@ const goalLabel = computed(() => {
   if (c.discipline === "tactics") return t("challenge_goal_tactics");
   if (c.objective === "hold_draw") return t("challenge_goal_draw");
   return t("challenge_goal_win");
-});
-
-const turnIndicatorText = computed(() => {
-  if (store.isBotThinking) return t("challenge_bot_thinking");
-  return store.challenge?.user_color === "black"
-    ? t("challenge_your_turn_black")
-    : t("challenge_your_turn_white");
 });
 
 const formattedSfLines = computed(() => {
@@ -273,31 +266,6 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
-
-    <!-- Status / Feedback Banner -->
-    <div
-      v-if="store.feedbackBanner"
-      class="rounded-lg border px-3 py-1.5 text-xs font-bold"
-      :class="
-        store.feedbackBanner.type === 'success'
-          ? 'border-success/40 bg-success/15 text-success'
-          : store.feedbackBanner.type === 'error'
-            ? 'border-danger/40 bg-danger/15 text-danger'
-            : 'border-info/40 bg-info/15 text-info'
-      "
-    >
-      {{ t(store.feedbackBanner.messageKey as TranslationKey) }}
-    </div>
-
-    <div
-      v-else-if="store.challenge && !store.isFinished"
-      class="flex items-center justify-between rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-semibold text-text-secondary"
-    >
-      <span>{{ turnIndicatorText }}</span>
-      <span v-if="store.gaviotaHint" class="font-condensed text-info">
-        {{ store.gaviotaHint }}
-      </span>
-    </div>
 
     <!-- Interactive Chessboard (stable vertical position — never shifts!) -->
     <div

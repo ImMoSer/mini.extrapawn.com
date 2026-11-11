@@ -32,7 +32,7 @@ function toggleLanguage() {
     </div>
   </header>
 
-  <!-- Bottom Fixed Navigation Bar: Кабинет | 🏆 Клубы | BOSS | RU -->
+  <!-- Bottom Fixed Navigation Bar: Кабинет | 🏆 Клубы | GO | ℹ️ О нас | RU -->
   <nav
     class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur-xs"
     style="padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px))"
@@ -42,7 +42,7 @@ function toggleLanguage() {
         type="button"
         class="shrink-0 rounded-md px-3.5 py-1.5 text-xs font-semibold transition"
         :class="
-          route.path === '/cabinet'
+          route.path === '/cabinet' || route.path === '/super-admin'
             ? 'bg-elevated text-brand border border-brand/40'
             : 'text-text-secondary hover:text-text-primary'
         "
@@ -90,20 +90,6 @@ function toggleLanguage() {
         @click="router.push('/about')"
       >
         ℹ️ {{ t("nav_about") }}
-      </button>
-
-      <button
-        v-if="cabinetStore.isSuperadmin"
-        type="button"
-        class="shrink-0 rounded-md px-3 py-1.5 text-xs font-bold transition"
-        :class="
-          route.path === '/super-admin'
-            ? 'bg-accent text-on-brand'
-            : 'text-accent hover:bg-elevated'
-        "
-        @click="router.push('/super-admin')"
-      >
-        {{ t("nav_superadmin") }}
       </button>
 
       <button

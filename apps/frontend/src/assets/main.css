@@ -165,10 +165,11 @@ body {
   font-family: var(--font-display);
   background-color: var(--color-canvas);
   color: var(--color-text-primary);
-  height: 100%;
-  overflow-y: auto;
+  min-height: 100%;
   overflow-x: hidden;
   overscroll-behavior-y: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -208,20 +209,15 @@ body {
   padding-right: 48px;
 }
 
-/* Subtle Scrollbar */
+/* Hide layout-consuming scrollbars in Telegram Mini App to prevent 6px horizontal shift */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--theme-scrollbar-thumb);
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--theme-scrollbar-thumb-hover);
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* ============================================================================
