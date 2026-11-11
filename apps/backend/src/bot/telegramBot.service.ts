@@ -148,6 +148,14 @@ function normalizeLang(raw: string | null | undefined): AppLanguage {
   return "ru";
 }
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function buildChallengeCaption(
   puzzle: NormalizedChallengePuzzle,
   rawLang: AppLanguage
@@ -580,6 +588,45 @@ export const telegramBotService = {
   },
 
   /**
+   * Sends a concise notification to the club's topic thread when an admin saves club settings.
+   */
+  async notifyClubSettingsUpdated(params: {
+    chatId: string;
+    firstName: string;
+  }): Promise<void> {
+    if (!env.TELEGRAM_BOT_TOKEN) return;
+
+    const [club] = await db
+      .select()
+      .from(clubs)
+      .where(eq(clubs.chatId, params.chatId))
+      .limit(1);
+
+    if (!club || club.status === "blocked") return;
+
+    const lang = normalizeLang(club.language);
+    const safeName = escapeHtml(params.firstName.trim() || "Admin");
+    const text =
+      lang === "en"
+        ? `⚙️ <b>${safeName}</b> updated the settings.`
+        : lang === "de"
+          ? `⚙️ <b>${safeName}</b> hat die Einstellungen geändert.`
+          : `⚙️ <b>${safeName}</b> изменил настройки.`;
+
+    const payload: Record<string, unknown> = {
+      chat_id: params.chatId,
+      parse_mode: "HTML",
+      text,
+    };
+
+    if (club.topicThreadId > 0) {
+      payload.message_thread_id = club.topicThreadId;
+    }
+
+    await callTelegramJson("sendMessage", payload);
+  },
+
+  /**
    * Publishes a periodic Top-10 Club Standings summary to the club's topic thread
    * and updates `clubs.lastLeaderboardAt`.
    */
@@ -618,11 +665,7 @@ export const telegramBotService = {
       const att = r.attempt;
       if (!att.solved) continue;
       const usr = r.user;
-      const displayName = usr
-        ? usr.username
-          ? `@${usr.username}`
-          : usr.firstName
-        : att.username;
+      const displayName = escapeHtml(usr?.firstName || att.username);
 
       let entry = statsByUser.get(att.telegramId);
       if (!entry) {

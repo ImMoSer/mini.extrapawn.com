@@ -292,6 +292,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   }
 
   async function recordFailedAttempt(resetToStart: boolean): Promise<void> {
+    stopTimer();
     playChessSound("tactics_error");
     triggerHapticNotification("error");
     feedbackBanner.value = {
@@ -306,6 +307,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       boardRevision.value += 1;
     }
     await submitAttemptToBackend(false);
+    elapsedMs.value = 0;
+    startTimer();
   }
 
   async function checkGaviotaIfFewPieces(fen: string): Promise<void> {

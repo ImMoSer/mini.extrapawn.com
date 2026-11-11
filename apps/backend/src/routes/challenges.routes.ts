@@ -298,11 +298,7 @@ async function buildChallengeStateDTO(params: {
     const denom = att.solved && att.attempts === 0 ? 1 : att.attempts;
     const scoreText = `${scorePoints}/${denom}`;
 
-    const displayName = usr
-      ? usr.username
-        ? `@${usr.username}`
-        : usr.firstName
-      : att.username;
+    const displayName = usr?.firstName || att.username;
 
     return {
       rank: idx + 1,
@@ -715,7 +711,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [fastify.authenticate] },
     async (req) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
-      const displayName = req.user.username || req.user.firstName;
+      const displayName = req.user.firstName;
 
       return buildChallengeStateDTO({
         chatId,
@@ -738,7 +734,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
-      const displayName = req.user.username || req.user.firstName;
+      const displayName = req.user.firstName;
       const { solved, time_ms, uci_moves = "", pgn_moves = "" } = req.body;
 
       await ensureClubExists(chatId);
@@ -811,9 +807,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
               discipline,
               puzzleId,
               edition: safeEdition,
-              username: req.user.username
-                ? `@${req.user.username}`
-                : req.user.firstName,
+              username: req.user.firstName,
               attempts: nextAttempts,
               timeMs: Math.max(0, Math.round(time_ms)),
             })
@@ -844,7 +838,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
-      const displayName = req.user.username || req.user.firstName;
+      const displayName = req.user.firstName;
 
       await ensureClubExists(chatId);
 

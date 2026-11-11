@@ -64,6 +64,21 @@ const activeDay = ref<DayOfWeekKey>(detectTodayKey());
 const weeklySchedule = ref<WeeklyScheduleConfig>(createDefaultWeeklySchedule());
 const clubLanguage = ref<AppLanguage>("ru");
 const clubTimezone = ref<string>("Europe/Berlin");
+const savedSnapshot = ref<string>("");
+
+function buildSettingsSnapshot(): string {
+  return JSON.stringify({
+    language: clubLanguage.value,
+    timezone: clubTimezone.value,
+    weekly_schedule: weeklySchedule.value,
+  });
+}
+
+const isDirty = computed(
+  () =>
+    savedSnapshot.value !== "" &&
+    buildSettingsSnapshot() !== savedSnapshot.value
+);
 
 const currentDayConfig = computed(() => weeklySchedule.value[activeDay.value]);
 
@@ -228,6 +243,7 @@ async function loadClub() {
     weeklySchedule.value = normalizeWeeklySchedule(res.weekly_schedule);
     clubLanguage.value = res.language || "ru";
     clubTimezone.value = res.timezone || "Europe/Berlin";
+    savedSnapshot.value = buildSettingsSnapshot();
   } finally {
     isLoading.value = false;
   }
@@ -261,6 +277,9 @@ async function saveSettings(): Promise<boolean> {
     club.value = updated;
     isClubActive.value = updated.is_active;
     weeklySchedule.value = normalizeWeeklySchedule(updated.weekly_schedule);
+    clubLanguage.value = updated.language || "ru";
+    clubTimezone.value = updated.timezone || "Europe/Berlin";
+    savedSnapshot.value = buildSettingsSnapshot();
     statusBanner.value = { type: "success", text: t("settings_saved_ok") };
     return true;
   } catch (err) {
@@ -278,8 +297,10 @@ async function publishChallengeNow() {
   isPublishing.value = true;
   statusBanner.value = null;
   try {
-    const ok = await saveSettings();
-    if (!ok) return;
+    if (isDirty.value) {
+      const ok = await saveSettings();
+      if (!ok) return;
+    }
 
     const currentHour = new Date().getHours();
     const activeSlots = weeklySchedule.value[activeDay.value].slots;
@@ -729,11 +750,20 @@ onMounted(() => {
     <div class="flex flex-col gap-2 sm:flex-row">
       <button
         type="button"
-        :disabled="isSaving"
-        class="flex-1 rounded-lg border border-brand bg-elevated py-3 text-sm font-bold text-brand transition hover:bg-brand hover:text-on-brand"
+        :disabled="!isDirty || isSaving"
+        class="flex-1 rounded-lg border py-3 text-sm font-bold transition"
+        :class="
+          isDirty
+            ? 'border-brand bg-brand/15 text-brand hover:bg-brand hover:text-on-brand'
+            : 'border-border bg-elevated text-text-secondary opacity-60 cursor-default'
+        "
         @click="saveSettings"
       >
-        💾 {{ t("settings_save_btn") }}
+        {{
+          isDirty
+            ? t("settings_save_active_btn")
+            : t("settings_saved_passive_btn")
+        }}
       </button>
 
       <button

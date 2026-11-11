@@ -247,6 +247,18 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(clubs.chatId, req.params.chatId))
         .returning();
 
+      void telegramBotService
+        .notifyClubSettingsUpdated({
+          chatId: req.params.chatId,
+          firstName: req.user.firstName,
+        })
+        .catch((err) => {
+          req.log.error(
+            err,
+            "[ClubsRoute] Failed to send Telegram active toggle notification"
+          );
+        });
+
       return mapClubRowToSummaryDTO(
         updated ?? row,
         req.user.telegramId,
@@ -373,6 +385,18 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .where(eq(clubs.chatId, req.params.chatId))
         .returning();
+
+      void telegramBotService
+        .notifyClubSettingsUpdated({
+          chatId: req.params.chatId,
+          firstName: req.user.firstName,
+        })
+        .catch((err) => {
+          req.log.error(
+            err,
+            "[ClubsRoute] Failed to send Telegram settings notification"
+          );
+        });
 
       return mapClubRowToSummaryDTO(
         updated ?? row,
