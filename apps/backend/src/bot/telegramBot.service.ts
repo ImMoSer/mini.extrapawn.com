@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, desc, eq, ne, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne, or } from "drizzle-orm";
 import {
   ALL_DAYS_OF_WEEK,
   calculateAttemptPoints,
@@ -293,6 +293,24 @@ async function callTelegramJson<T>(
   throw lastError;
 }
 
+async function deleteTelegramMessage(
+  chatId: string,
+  messageId: number
+): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN || !messageId) return;
+  try {
+    await callTelegramJson("deleteMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+  } catch (err) {
+    console.warn(
+      `[TelegramBot] deleteMessage failed for chat ${chatId} (message ${messageId}):`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
 async function sendTelegramPhoto(params: {
   chatId: string;
   messageThreadId?: number;
@@ -505,19 +523,36 @@ export const telegramBotService = {
       );
     }
 
-    if (tgMessageId) {
-      try {
-        await callTelegramJson("pinChatMessage", {
-          chat_id: chatId,
-          message_id: tgMessageId,
-          disable_notification: true,
-        });
-      } catch (pinErr) {
-        console.warn(
-          `[TelegramBot] pinChatMessage failed for chat ${chatId} (message ${tgMessageId}):`,
-          pinErr instanceof Error ? pinErr.message : pinErr
-        );
+    // Auto-clean previous challenge message(s) so only the active challenge stays in the topic
+    const previousActiveMessages = await db
+      .select({
+        id: clubChallenges.id,
+        tgMessageId: clubChallenges.tgMessageId,
+      })
+      .from(clubChallenges)
+      .where(
+        and(
+          eq(clubChallenges.chatId, chatId),
+          isNotNull(clubChallenges.tgMessageId)
+        )
+      );
+
+    for (const prev of previousActiveMessages) {
+      if (prev.tgMessageId && prev.tgMessageId !== tgMessageId) {
+        await deleteTelegramMessage(chatId, prev.tgMessageId);
       }
+    }
+
+    if (previousActiveMessages.length > 0) {
+      await db
+        .update(clubChallenges)
+        .set({ tgMessageId: null })
+        .where(
+          and(
+            eq(clubChallenges.chatId, chatId),
+            isNotNull(clubChallenges.tgMessageId)
+          )
+        );
     }
 
     const [inserted] = await db
@@ -640,10 +675,20 @@ export const telegramBotService = {
     if (challenge?.tgMessageId) {
       payload.reply_parameters = {
         message_id: challenge.tgMessageId,
+        allow_sending_without_reply: true,
       };
     }
 
-    await callTelegramJson("sendMessage", payload);
+    const sendRes = await callTelegramJson<{ message_id: number }>(
+      "sendMessage",
+      payload
+    );
+    const solvedMessageId = sendRes.result?.message_id;
+    if (solvedMessageId) {
+      setTimeout(() => {
+        void deleteTelegramMessage(params.chatId, solvedMessageId);
+      }, 30_000);
+    }
   },
 
   /**

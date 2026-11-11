@@ -27,7 +27,7 @@ const maxClubTotal = computed(() => {
 
 const addBotDeepLink = computed(() => {
   const botUsername = cabinetStore.data?.bot_username || "ExtraPawnTeleBot";
-  return `https://t.me/${botUsername}?startgroup=true&admin=manage_topics+post_messages+pin_messages`;
+  return `https://t.me/${botUsername}?startgroup=true&admin=manage_topics+delete_messages+manage_chat`;
 });
 
 const isClubLimitReached = computed(
