@@ -178,9 +178,24 @@ const DICT = {
       "• Минимум данных (Privacy by Design): хранятся только публичные метаданные профиля Telegram (ID, имя, @username) и попытки решения задач.",
     about_sec2_p3:
       "• Удаление в 1 клик: администратор любого клуба может в любой момент отключить бота и безвозвратно удалить все данные клуба в настройках. Личную статистику можно удалить по запросу.",
-    about_sec3_title: "⚡ Open Source & Благодарности (GPLv3)",
+    about_sec3_title: "⚡ Лицензии и благодарности (GPLv3)",
     about_sec3_p1:
-      "Проект построен с использованием открытых шахматных технологий: движок Stockfish (лицензия GNU GPLv3), открытая база задач и эндшпилей Lichess Open Database, человекоподобные нейросети Maia (1500 / 2200) и система спарринга MOZERO (LCZero + таблицы Syzygy).",
+      "Этот проект лицензирован под GNU General Public License v3.0, что способствует прозрачности и росту сообщества. В соответствии с GPLv3 наш исходный код полностью открыт и доступен для блага мирового шахматного сообщества.",
+    about_sec3_sf_title: "Stockfish 19",
+    about_sec3_sf_desc:
+      "Анализ и поиск истины обеспечиваются Stockfish — сильнейшим в мире шахматным движком с открытым исходным кодом (GNU GPLv3).",
+    about_sec3_mozero_title: "Система спарринга MOZERO и нейросетевой хаб (наша разработка)",
+    about_sec3_mozero_desc:
+      "Реалистичный спарринг обеспечивается человекоподобными моделями Maia (1500 и 2200 Elo) и нашей собственной гибридной системой MOZERO на базе движка lc0_32_1, весов Elite-Leela-v2-128x10x8h-1704000.pb.gz и специализированной Python-обвязки с эндшпильными базами Syzygy & Gaviota. Особая благодарность автору репозитория CallOn84/LeelaNets за публикацию весов нейросети.",
+    about_sec3_lczero_title: "Leela Chess Zero (LCZero)",
+    about_sec3_lczero_desc:
+      "Наш нейросетевой слой работает на LCZero — новаторском движке, который открыл доступ к ИИ-шахматам широким массам. Уважение сообществу LCZero.",
+    about_sec3_lichess_title: "Chessground, Chessops & Lichess Open Database",
+    about_sec3_lichess_desc:
+      "Отрисовка доски и шахматная логика выполняются сверхбыстрым движком Chessground & Chessops на базе открытых датасетов Lichess. Спасибо Lichess за лучший рендерер доски в мире!",
+    about_repo_mini_btn: "📦 GitHub: mini.extrapawn.com ↗",
+    about_repo_main_btn: "📦 GitHub: extrapawn.com ↗",
+    about_repo_leela_btn: "📦 CallOn84/LeelaNets ↗",
     about_sec4_title: "☕ Поддержать проект (Добровольный донат)",
     about_sec4_desc:
       "Платформа полностью бесплатна для всех игроков и клубов. Если вам нравится проект, вы можете добровольно угостить разработчика кофе на поддержку серверов:",
@@ -360,9 +375,24 @@ const DICT = {
       "• Minimal Data (Privacy by Design): we only store public Telegram profile metadata (ID, name, @username) and puzzle attempt results.",
     about_sec2_p3:
       "• 1-Click Deletion: any club admin can disconnect the bot and permanently delete all club data in settings at any time. Personal stats can be deleted upon request.",
-    about_sec3_title: "⚡ Open Source & Credits (GPLv3)",
+    about_sec3_title: "⚡ Licenses & Credits (GPLv3)",
     about_sec3_p1:
-      "Built with open-source chess technologies: Stockfish engine (GNU GPLv3), Lichess Open Database, human-like Maia neural networks (1500 / 2200), and the MOZERO sparring system (LCZero + Syzygy tablebases).",
+      "This project is licensed under the GNU General Public License v3.0, promoting transparency and community growth. In accordance with GPLv3, our source code is completely open and available for the benefit of the global chess community.",
+    about_sec3_sf_title: "Stockfish 19",
+    about_sec3_sf_desc:
+      "Analysis and truth-seeking are powered by Stockfish, the world's strongest open-source chess engine (GNU GPLv3).",
+    about_sec3_mozero_title: "MOZERO Sparring System & Neural Hub (Our In-House Engineering)",
+    about_sec3_mozero_desc:
+      "Realistic sparring is powered by human-like Maia models (1500 & 2200 Elo) and our custom hybrid MOZERO system built on lc0_32_1, Elite-Leela-v2-128x10x8h-1704000.pb.gz weights, and a specialized Python wrapper with Syzygy & Gaviota endgame tablebases. Special thanks to CallOn84/LeelaNets for publishing the neural network weights.",
+    about_sec3_lczero_title: "Leela Chess Zero (LCZero)",
+    about_sec3_lczero_desc:
+      "Our neural network layer runs on LCZero — the pioneering engine that brought AI chess to the wider community. Huge respect to the LCZero team.",
+    about_sec3_lichess_title: "Chessground, Chessops & Lichess Open Database",
+    about_sec3_lichess_desc:
+      "Board rendering and move validation are powered by the ultra-fast Chessground & Chessops libraries along with the Lichess Open Database. Thank you Lichess for the best chessboard renderer in the world!",
+    about_repo_mini_btn: "📦 GitHub: mini.extrapawn.com ↗",
+    about_repo_main_btn: "📦 GitHub: extrapawn.com ↗",
+    about_repo_leela_btn: "📦 CallOn84/LeelaNets ↗",
     about_sec4_title: "☕ Support the Project (Voluntary Donation)",
     about_sec4_desc:
       "The platform is 100% free for all players and clubs. If you enjoy ExtraPawn, you can voluntarily buy the developer a coffee to help cover server costs:",
@@ -542,9 +572,24 @@ const DICT = {
       "• Minimale Daten (Privacy by Design): Gespeichert werden nur öffentliche Telegram-Profildaten (ID, Name, @username) und Lösungsversuche.",
     about_sec2_p3:
       "• 1-Klick-Löschung: Klub-Admins können den Bot jederzeit trennen und alle Klubdaten in den Einstellungen unwiderruflich löschen. Persönliche Daten werden auf Anfrage gelöscht.",
-    about_sec3_title: "⚡ Open Source & Danksagung (GPLv3)",
+    about_sec3_title: "⚡ Lizenzen & Danksagung (GPLv3)",
     about_sec3_p1:
-      "Entwickelt mit Open-Source-Schachtechnologien: Stockfish Engine (GNU GPLv3), Lichess Open Database, menschenähnliche Maia-Neuronalnetze (1500 / 2200) und das Sparring-System MOZERO (LCZero + Syzygy Tablebases).",
+      "Dieses Projekt ist unter der GNU General Public License v3.0 lizenziert, was Transparenz und das Wachstum der Community fördert. Gemäß GPLv3 ist unser Quellcode vollständig offen und zum Nutzen der weltweiten Schachgemeinschaft zugänglich.",
+    about_sec3_sf_title: "Stockfish 19",
+    about_sec3_sf_desc:
+      "Analyse und Wahrheitssuche werden von Stockfish bereitgestellt, der weltweit stärksten Open-Source-Schach-Engine (GNU GPLv3).",
+    about_sec3_mozero_title: "MOZERO Sparring-System & Neural Hub (Unsere Eigenentwicklung)",
+    about_sec3_mozero_desc:
+      "Realistisches Sparring wird durch menschenähnliche Maia-Modelle (1500 & 2200 Elo) und unser eigenes hybrides MOZERO-System auf Basis von lc0_32_1, den Gewichten Elite-Leela-v2-128x10x8h-1704000.pb.gz und einer spezialisierten Python-Anbindung mit Syzygy- & Gaviota-Endspieldatenbanken ermöglicht. Besonderer Dank gilt CallOn84/LeelaNets für die Veröffentlichung der Netzgewichte.",
+    about_sec3_lczero_title: "Leela Chess Zero (LCZero)",
+    about_sec3_lczero_desc:
+      "Unsere neuronale Schicht basiert auf LCZero — der bahnbrechenden Engine, die KI-Schach für alle zugänglich gemacht hat. Großer Respekt an die LCZero-Community.",
+    about_sec3_lichess_title: "Chessground, Chessops & Lichess Open Database",
+    about_sec3_lichess_desc:
+      "Die Brettdarstellung und Zuglogik erfolgen über das ultraschnelle Chessground & Chessops sowie die Lichess Open Database. Danke an Lichess für den besten Schachbrett-Renderer der Welt!",
+    about_repo_mini_btn: "📦 GitHub: mini.extrapawn.com ↗",
+    about_repo_main_btn: "📦 GitHub: extrapawn.com ↗",
+    about_repo_leela_btn: "📦 CallOn84/LeelaNets ↗",
     about_sec4_title: "☕ Projekt unterstützen (Freiwillige Spende)",
     about_sec4_desc:
       "Die Plattform ist für alle Spieler und Klubs komplett kostenlos. Wenn Ihnen das Projekt gefällt, können Sie dem Entwickler freiwillig einen Kaffee zur Unterstützung der Serverkosten spendieren:",

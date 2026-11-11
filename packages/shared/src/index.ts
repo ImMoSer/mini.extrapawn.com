@@ -15,6 +15,9 @@ export const LEGAL_PRIVACY_URL = "https://extrapawn.com/legal#privacy";
 export const LEGAL_TERMS_URL = "https://extrapawn.com/legal#terms";
 export const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/extrapawn.com";
 export const DEVELOPER_TG_URL = "https://t.me/ProfessorMozer";
+export const GITHUB_MINI_REPO_URL = "https://github.com/ImMoSer/mini.extrapawn.com";
+export const GITHUB_MAIN_REPO_URL = "https://github.com/ImMoSer/extrapawn.com";
+export const LEELA_NETS_REPO_URL = "https://github.com/CallOn84/LeelaNets";
 
 export type AppLanguage = "ru" | "en" | "de";
 

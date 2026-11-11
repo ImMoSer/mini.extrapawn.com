@@ -3,6 +3,9 @@ import {
   BUY_ME_A_COFFEE_URL,
   DEVELOPER_TG_URL,
   EXTRAPAWN_WEB_URL,
+  GITHUB_MAIN_REPO_URL,
+  GITHUB_MINI_REPO_URL,
+  LEELA_NETS_REPO_URL,
   LEGAL_IMPRINT_URL,
   LEGAL_PRIVACY_URL,
   LEGAL_TERMS_URL,
@@ -65,13 +68,83 @@ const { t } = useI18n();
     </section>
 
     <!-- 3. Open Source & Credits (GPLv3 compliance) -->
-    <section class="glass flex flex-col gap-2 p-4">
-      <h2 class="text-xs font-bold tracking-wider text-text-primary uppercase">
-        {{ t("about_sec3_title") }}
-      </h2>
+    <section class="glass flex flex-col gap-3 p-4">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-xs font-bold tracking-wider text-text-primary uppercase">
+          {{ t("about_sec3_title") }}
+        </h2>
+        <span class="rounded bg-elevated px-2 py-0.5 font-mono text-[10px] font-bold text-brand">
+          GNU GPLv3
+        </span>
+      </div>
+
       <p class="text-xs leading-relaxed text-text-secondary">
         {{ t("about_sec3_p1") }}
       </p>
+
+      <!-- Source Code Repository Links -->
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          class="rounded-lg border border-brand/40 bg-elevated px-3 py-2 text-xs font-bold text-brand transition hover:border-brand"
+          @click="openTelegramUrl(GITHUB_MINI_REPO_URL)"
+        >
+          {{ t("about_repo_mini_btn") }}
+        </button>
+        <button
+          type="button"
+          class="rounded-lg border border-border bg-elevated px-3 py-2 text-xs font-bold text-text-primary transition hover:border-brand hover:text-brand"
+          @click="openTelegramUrl(GITHUB_MAIN_REPO_URL)"
+        >
+          {{ t("about_repo_main_btn") }}
+        </button>
+      </div>
+
+      <!-- 4 Detailed Credit Blocks (matching extrapawn.com) -->
+      <div class="flex flex-col gap-2">
+        <div class="rounded-lg border border-border bg-elevated p-3">
+          <div class="text-xs font-bold text-text-primary">
+            {{ t("about_sec3_sf_title") }}
+          </div>
+          <p class="mt-1 text-xs leading-relaxed text-text-secondary">
+            {{ t("about_sec3_sf_desc") }}
+          </p>
+        </div>
+
+        <div class="rounded-lg border border-border bg-elevated p-3">
+          <div class="text-xs font-bold text-brand">
+            {{ t("about_sec3_mozero_title") }}
+          </div>
+          <p class="mt-1 text-xs leading-relaxed text-text-secondary">
+            {{ t("about_sec3_mozero_desc") }}
+          </p>
+          <button
+            type="button"
+            class="mt-2 inline-flex items-center rounded border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-text-primary transition hover:border-brand hover:text-brand"
+            @click="openTelegramUrl(LEELA_NETS_REPO_URL)"
+          >
+            {{ t("about_repo_leela_btn") }}
+          </button>
+        </div>
+
+        <div class="rounded-lg border border-border bg-elevated p-3">
+          <div class="text-xs font-bold text-text-primary">
+            {{ t("about_sec3_lczero_title") }}
+          </div>
+          <p class="mt-1 text-xs leading-relaxed text-text-secondary">
+            {{ t("about_sec3_lczero_desc") }}
+          </p>
+        </div>
+
+        <div class="rounded-lg border border-border bg-elevated p-3">
+          <div class="text-xs font-bold text-text-primary">
+            {{ t("about_sec3_lichess_title") }}
+          </div>
+          <p class="mt-1 text-xs leading-relaxed text-text-secondary">
+            {{ t("about_sec3_lichess_desc") }}
+          </p>
+        </div>
+      </div>
     </section>
 
     <!-- 4. Voluntary Support (Donate & Contact) -->
