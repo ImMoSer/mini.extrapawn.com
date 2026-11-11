@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  BUY_ME_A_COFFEE_URL,
   DEVELOPER_TG_URL,
   EXTRAPAWN_WEB_URL,
   GITHUB_MAIN_REPO_URL,
@@ -9,6 +8,7 @@ import {
   LEGAL_IMPRINT_URL,
   LEGAL_PRIVACY_URL,
   LEGAL_TERMS_URL,
+  SUPPORT_PROJECT_URL,
 } from "shared";
 import { useI18n } from "@/shared/i18n/useI18n";
 import { openTelegramUrl } from "@/shared/lib/telegram";
@@ -159,7 +159,7 @@ const { t } = useI18n();
         <button
           type="button"
           class="flex-1 rounded-lg bg-brand px-3 py-2.5 text-xs font-bold text-on-brand transition hover:bg-brand-deep"
-          @click="openTelegramUrl(BUY_ME_A_COFFEE_URL)"
+          @click="openTelegramUrl(SUPPORT_PROJECT_URL)"
         >
           {{ t("about_donate_btn") }}
         </button>
