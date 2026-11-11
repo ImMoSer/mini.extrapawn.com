@@ -360,13 +360,13 @@ export function normalizeWeeklySchedule(raw: unknown): WeeklyScheduleConfig {
         typeof slotObj.from_hour === "number"
           ? Math.trunc(slotObj.from_hour)
           : 10;
-      const fromHour = Math.min(21, Math.max(8, rawFrom));
+      const fromHour = Math.min(23, Math.max(6, rawFrom));
 
       const rawTo =
         typeof slotObj.to_hour === "number"
           ? Math.trunc(slotObj.to_hour)
           : fromHour + 1;
-      const toHour = Math.min(22, Math.max(fromHour + 1, rawTo));
+      const toHour = Math.min(24, Math.max(fromHour + 1, rawTo));
 
       const intervalMinutes: ScheduleIntervalMinutes = isValidInterval(
         slotObj.interval_minutes
@@ -425,6 +425,97 @@ export function normalizeWeeklySchedule(raw: unknown): WeeklyScheduleConfig {
   }
 
   return result;
+}
+
+export interface ClubTimezoneOption {
+  value: string;
+  labelRu: string;
+  labelEn: string;
+  labelDe: string;
+}
+
+export const CLUB_TIMEZONE_OPTIONS: readonly ClubTimezoneOption[] = [
+  {
+    value: "Europe/Berlin",
+    labelRu: "Europe/Berlin — Берлин / ЦЕВ (по умолчанию)",
+    labelEn: "Europe/Berlin — Berlin / CET (Default)",
+    labelDe: "Europe/Berlin — Berlin / MEZ (Standard)",
+  },
+  {
+    value: "Europe/Moscow",
+    labelRu: "Europe/Moscow — Москва / Минск (MSK, UTC+3)",
+    labelEn: "Europe/Moscow — Moscow / Minsk (MSK, UTC+3)",
+    labelDe: "Europe/Moscow — Moskau / Minsk (MSK, UTC+3)",
+  },
+  {
+    value: "UTC",
+    labelRu: "UTC — Всемирное время (UTC+0)",
+    labelEn: "UTC — Coordinated Universal Time (UTC+0)",
+    labelDe: "UTC — Koordinierte Weltzeit (UTC+0)",
+  },
+  {
+    value: "Europe/London",
+    labelRu: "Europe/London — Лондон / Лиссабон (GMT/BST)",
+    labelEn: "Europe/London — London / Lisbon (GMT/BST)",
+    labelDe: "Europe/London — London / Lissabon (GMT/BST)",
+  },
+  {
+    value: "Europe/Kyiv",
+    labelRu: "Europe/Kyiv — Киев / Рига / Таллин (EET)",
+    labelEn: "Europe/Kyiv — Kyiv / Riga / Tallinn (EET)",
+    labelDe: "Europe/Kyiv — Kiew / Riga / Tallinn (OEZ)",
+  },
+  {
+    value: "Asia/Dubai",
+    labelRu: "Asia/Dubai — Дубай / Баку / Тбилиси (UTC+4)",
+    labelEn: "Asia/Dubai — Dubai / Baku / Tbilisi (UTC+4)",
+    labelDe: "Asia/Dubai — Dubai / Baku / Tiflis (UTC+4)",
+  },
+  {
+    value: "Asia/Yekaterinburg",
+    labelRu: "Asia/Yekaterinburg — Екатеринбург / Ташкент (UTC+5)",
+    labelEn: "Asia/Yekaterinburg — Yekaterinburg / Tashkent (UTC+5)",
+    labelDe: "Asia/Yekaterinburg — Jekaterinburg / Taschkent (UTC+5)",
+  },
+  {
+    value: "Asia/Almaty",
+    labelRu: "Asia/Almaty — Алматы / Астана / Бишкек (UTC+5/+6)",
+    labelEn: "Asia/Almaty — Almaty / Astana / Bishkek (UTC+5/+6)",
+    labelDe: "Asia/Almaty — Almaty / Astana / Bischkek (UTC+5/+6)",
+  },
+  {
+    value: "Asia/Novosibirsk",
+    labelRu: "Asia/Novosibirsk — Новосибирск / Бангкок (UTC+7)",
+    labelEn: "Asia/Novosibirsk — Novosibirsk / Bangkok (UTC+7)",
+    labelDe: "Asia/Novosibirsk — Nowosibirsk / Bangkok (UTC+7)",
+  },
+  {
+    value: "Asia/Tokyo",
+    labelRu: "Asia/Tokyo — Токио / Сеул (UTC+9)",
+    labelEn: "Asia/Tokyo — Tokyo / Seoul (UTC+9)",
+    labelDe: "Asia/Tokyo — Tokio / Seoul (UTC+9)",
+  },
+  {
+    value: "America/New_York",
+    labelRu: "America/New_York — Нью-Йорк / Торонто (ET)",
+    labelEn: "America/New_York — New York / Toronto (ET)",
+    labelDe: "America/New_York — New York / Toronto (ET)",
+  },
+  {
+    value: "America/Los_Angeles",
+    labelRu: "America/Los_Angeles — Лос-Анджелес / Ванкувер (PT)",
+    labelEn: "America/Los_Angeles — Los Angeles / Vancouver (PT)",
+    labelDe: "America/Los_Angeles — Los Angeles / Vancouver (PT)",
+  },
+] as const;
+
+export function getClubTimezoneOptionLabel(
+  opt: ClubTimezoneOption,
+  lang: AppLanguage
+): string {
+  if (lang === "en") return opt.labelEn;
+  if (lang === "de") return opt.labelDe;
+  return opt.labelRu;
 }
 
 // ============================================================================
@@ -680,13 +771,183 @@ export interface SuperAdminOverviewDTO {
   promos: PromoCampaignDTO[];
 }
 
+export interface PromoLocalizedContent {
+  text: string;
+  button: string;
+}
+
+export interface PromoTranslationsPayload {
+  ru: PromoLocalizedContent;
+  en: PromoLocalizedContent;
+  de: PromoLocalizedContent;
+}
+
+export const DEFAULT_PROMO_FILE_ID =
+  "AgACAgIAAxkBAAMLavQp75AR4Z4d1VjxaSOIjabIpRMAAm8baxvxDaBLmU2Ch__KXhQBAAMCAAN5AAM9BA";
+
+export const DEFAULT_PROMO_TRANSLATIONS: PromoTranslationsPayload = {
+  ru: {
+    text: "♟ <b>Тренируйся как Профи на ExtraPawn.com!</b>\n<i>Глубокий анализ</i> партий и спарринг с ботами Maia и MOZERO.\n<blockquote>Решай задачи и расти в рейтинге каждый день!</blockquote>",
+    button: "🚀 Открыть ExtraPawn.com",
+  },
+  en: {
+    text: "♟ <b>Train like a Pro on ExtraPawn.com!</b>\n<i>Deep game analysis</i> and sparring with Maia & MOZERO bots.\n<blockquote>Solve puzzles and climb the rating ladder every day!</blockquote>",
+    button: "🚀 Open ExtraPawn.com",
+  },
+  de: {
+    text: "♟ <b>Trainiere wie ein Profi auf ExtraPawn.com!</b>\n<i>Tiefe Partieanalyse</i> und Sparring gegen Maia & MOZERO Bots.\n<blockquote>Löse Aufgaben und steigere täglich deine Wertungszahl!</blockquote>",
+    button: "🚀 ExtraPawn.com öffnen",
+  },
+};
+
+export function validateTelegramPromoHtml(
+  text: string,
+  langLabel: string
+): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return `[${langLabel}] Текст сообщения не может быть пустым`;
+  }
+
+  // Check forbidden Markdown syntax
+  if (trimmed.includes("```")) {
+    return `[${langLabel}] Запрещены блоки кода Markdown (\`\`\`)`;
+  }
+  if (trimmed.includes("`")) {
+    return `[${langLabel}] Запрещена инлайн-разметка кода (\`code\`)`;
+  }
+  if (trimmed.includes("**")) {
+    return `[${langLabel}] Запрещена Markdown-разметка (**bold**). Используйте <b>...</b>`;
+  }
+  if (/^#{1,6}\s/m.test(trimmed)) {
+    return `[${langLabel}] Запрещены Markdown-заголовки (#). Используйте <b>...</b>`;
+  }
+
+  // Validate HTML tags: ONLY <b>, <i>, <blockquote>, <a href="URL"> are allowed
+  const tagRegex = /<\/?[^>]+>/g;
+  const stack: string[] = [];
+  let match: RegExpExecArray | null = tagRegex.exec(trimmed);
+
+  while (match !== null) {
+    const rawTag = match[0];
+
+    if (rawTag === "<b>" || rawTag === "<i>" || rawTag === "<blockquote>") {
+      stack.push(rawTag.slice(1, -1));
+    } else if (/^<a\s+href="https?:\/\/[^"\s<>]+">$/i.test(rawTag)) {
+      stack.push("a");
+    } else if (
+      rawTag === "</b>" ||
+      rawTag === "</i>" ||
+      rawTag === "</blockquote>" ||
+      rawTag === "</a>"
+    ) {
+      const closingName = rawTag.slice(2, -1);
+      const lastOpened = stack.pop();
+      if (lastOpened !== closingName) {
+        return `[${langLabel}] Непарный или неверно вложенный закрывающий тег ${rawTag}`;
+      }
+    } else {
+      return `[${langLabel}] Запрещенный или некорректный HTML-тег: ${rawTag}. Разрешены только <b>, <i>, <blockquote> и <a href="https://...">`;
+    }
+
+    match = tagRegex.exec(trimmed);
+  }
+
+  if (stack.length > 0) {
+    return `[${langLabel}] Не закрыт HTML-тег <${stack[stack.length - 1]}>`;
+  }
+
+  return null;
+}
+
+export function parseAndValidatePromoTranslationsJson(
+  rawInput: string
+):
+  | { ok: true; data: PromoTranslationsPayload }
+  | { ok: false; error: string } {
+  const trimmed = rawInput.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Поле JSON пустое" };
+  }
+
+  let normalizedJson = trimmed;
+  if (!normalizedJson.startsWith("{") && !normalizedJson.startsWith("[")) {
+    normalizedJson = `{\n${normalizedJson}\n}`;
+  }
+
+  let parsedUnknown: unknown;
+  try {
+    parsedUnknown = JSON.parse(normalizedJson);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Ошибка синтаксиса JSON: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const rootObj = Array.isArray(parsedUnknown)
+    ? (parsedUnknown[0] as unknown)
+    : parsedUnknown;
+
+  if (!rootObj || typeof rootObj !== "object") {
+    return {
+      ok: false,
+      error: "JSON должен содержать объект с ключами ru, en, de",
+    };
+  }
+
+  const record = rootObj as Record<string, unknown>;
+  const langs: readonly AppLanguage[] = ["ru", "en", "de"];
+  const result: Record<AppLanguage, PromoLocalizedContent> = {
+    ru: { text: "", button: "" },
+    en: { text: "", button: "" },
+    de: { text: "", button: "" },
+  };
+
+  for (const lang of langs) {
+    const node = record[lang];
+    if (!node || typeof node !== "object") {
+      return {
+        ok: false,
+        error: `Отсутствует обязательный языковой блок "${lang}"`,
+      };
+    }
+    const langNode = node as Record<string, unknown>;
+    const textVal =
+      typeof langNode.text === "string" ? langNode.text.trim() : "";
+    const btnVal =
+      typeof langNode.button === "string" ? langNode.button.trim() : "";
+
+    const htmlErr = validateTelegramPromoHtml(textVal, lang.toUpperCase());
+    if (htmlErr) {
+      return { ok: false, error: htmlErr };
+    }
+    if (!btnVal) {
+      return {
+        ok: false,
+        error: `[${lang.toUpperCase()}] Поле "button" не может быть пустым`,
+      };
+    }
+
+    result[lang] = {
+      text: textVal,
+      button: btnVal,
+    };
+  }
+
+  return { ok: true, data: result };
+}
+
 export interface PromoCampaignDTO {
   id: number;
   title: string;
+  file_id: string | null;
   text_ru: string;
   text_en: string;
+  text_de: string;
   button_ru: string | null;
   button_en: string | null;
+  button_de: string | null;
   target_url: string | null;
   image_url: string | null;
   is_active: boolean;

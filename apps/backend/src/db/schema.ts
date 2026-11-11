@@ -194,10 +194,13 @@ export const challengeAttempts = teleAppSchema.table(
 export const promoCampaigns = teleAppSchema.table("promo_campaigns", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
+  fileId: text("file_id"),
   textRu: text("text_ru").notNull(),
   textEn: text("text_en").notNull(),
+  textDe: text("text_de").notNull().default(""),
   buttonRu: text("button_ru"),
   buttonEn: text("button_en"),
+  buttonDe: text("button_de"),
   targetUrl: text("target_url"),
   imageUrl: text("image_url"),
   isActive: boolean("is_active").notNull().default(true),

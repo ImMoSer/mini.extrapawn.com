@@ -82,7 +82,9 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
       )
     );
 
-    const visibleClubs = clubDtos.filter((c) => c.status !== "bot_removed");
+    const visibleClubs = clubDtos.filter(
+      (c) => c.status !== "bot_removed" && c.status !== "blocked"
+    );
     const myClubs = visibleClubs.filter((c) => c.is_admin);
     const ownedClubsCount = visibleClubs.filter(
       (c) =>

@@ -118,6 +118,18 @@ const DICT = {
     settings_slot_difficulty: "Сложность",
     settings_slot_focus: "Тема / Фокус",
     settings_bot_language: "Язык постов бота в Telegram",
+    settings_club_timezone: "Часовой пояс клуба",
+    settings_club_timezone_hint:
+      "Расписание публикаций работает по часовому поясу клуба (по умолчанию Europe/Berlin), независимо от того, где находятся модераторы.",
+    settings_blocked_title: "Ваш клуб временно заблокирован",
+    settings_blocked_desc:
+      "Обратитесь к разработчику @ProfessorMozer для разблокировки клуба:",
+    settings_disconnect_zone_title: "ОТКЛЮЧЕНИЕ БОТА И УДАЛЕНИЕ ДАННЫХ",
+    settings_disconnect_zone_desc:
+      "Бот покинет вашу супергруппу, а вся история челленджей, попыток и настроек клуба будет безвозвратно удалена из базы данных.",
+    settings_disconnect_btn: "🗑 Отключить бота и удалить данные клуба",
+    settings_disconnect_confirm:
+      "Вы уверены? Бот выйдет из чата, и все данные клуба будут полностью удалены из базы данных.",
   },
   en: {
     nav_cabinet: "Cabinet",
@@ -228,6 +240,18 @@ const DICT = {
     settings_slot_difficulty: "Difficulty",
     settings_slot_focus: "Theme / Focus",
     settings_bot_language: "Bot Language in Telegram",
+    settings_club_timezone: "Club Timezone",
+    settings_club_timezone_hint:
+      "Scheduled challenges run in the club's timezone (default Europe/Berlin), regardless of where individual moderators live.",
+    settings_blocked_title: "Your club is temporarily blocked",
+    settings_blocked_desc:
+      "Please contact the developer @ProfessorMozer to unblock your club:",
+    settings_disconnect_zone_title: "DISCONNECT BOT & DELETE CLUB DATA",
+    settings_disconnect_zone_desc:
+      "The bot will leave your supergroup and all club challenges, attempts, and settings will be permanently deleted from PostgreSQL.",
+    settings_disconnect_btn: "🗑 Disconnect Bot & Delete Club Data",
+    settings_disconnect_confirm:
+      "Are you sure? The bot will leave the chat and all club data will be permanently deleted from the database.",
   },
   de: {
     nav_cabinet: "Profil",
@@ -338,6 +362,18 @@ const DICT = {
     settings_slot_difficulty: "Schwierigkeit",
     settings_slot_focus: "Thema / Fokus",
     settings_bot_language: "Sprache der Bot-Posts in Telegram",
+    settings_club_timezone: "Zeitzone des Klubs",
+    settings_club_timezone_hint:
+      "Der Zeitplan läuft in der Zeitzone des Klubs (Standard Europe/Berlin), unabhängig vom Wohnort der Moderatoren.",
+    settings_blocked_title: "Ihr Klub ist vorübergehend gesperrt",
+    settings_blocked_desc:
+      "Bitte wenden Sie sich an den Entwickler @ProfessorMozer, um Ihren Klub zu entsperren:",
+    settings_disconnect_zone_title: "BOT TRENNEN & KLUBDATEN LÖSCHEN",
+    settings_disconnect_zone_desc:
+      "Der Bot verlässt Ihre Supergruppe und alle Challenges, Versuche und Einstellungen des Klubs werden unwiderruflich aus der Datenbank gelöscht.",
+    settings_disconnect_btn: "🗑 Bot trennen & Klubdaten löschen",
+    settings_disconnect_confirm:
+      "Sind Sie sicher? Der Bot verlässt den Chat und alle Klubdaten werden vollständig aus der Datenbank gelöscht.",
   },
 } as const;
 

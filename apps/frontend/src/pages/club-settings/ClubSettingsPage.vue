@@ -6,8 +6,10 @@ import {
   ALL_CHALLENGE_DISCIPLINES,
   ALL_DAYS_OF_WEEK,
   ALL_SCHEDULE_INTERVALS,
+  CLUB_TIMEZONE_OPTIONS,
   createDefaultWeeklySchedule,
   DEFAULT_CLUB_CHAT_ID,
+  getClubTimezoneOptionLabel,
   getWarmupTileLabel,
   getWarmupTilesForDiscipline,
   normalizeWeeklySchedule,
@@ -33,8 +35,12 @@ const chatId = computed(() =>
   route.params.chatId ? String(route.params.chatId) : DEFAULT_CLUB_CHAT_ID
 );
 
-const FROM_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21] as const;
-const ALL_TO_HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] as const;
+const FROM_HOURS = [
+  6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+] as const;
+const ALL_TO_HOURS = [
+  7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+] as const;
 
 function detectTodayKey(): DayOfWeekKey {
   const jsDay = new Date().getDay(); // 0 = Sun, 1 = Mon .. 6 = Sat
@@ -55,6 +61,7 @@ const isLoading = ref(false);
 const isSaving = ref(false);
 const isPublishing = ref(false);
 const isTogglingActive = ref(false);
+const isDisconnecting = ref(false);
 const statusBanner = ref<{ type: "success" | "error"; text: string } | null>(
   null
 );
@@ -65,6 +72,12 @@ const weeklySchedule = ref<WeeklyScheduleConfig>(createDefaultWeeklySchedule());
 const clubLanguage = ref<AppLanguage>("ru");
 const clubTimezone = ref<string>("Europe/Berlin");
 const savedSnapshot = ref<string>("");
+
+const hasCustomTimezone = computed(
+  () =>
+    Boolean(clubTimezone.value) &&
+    !CLUB_TIMEZONE_OPTIONS.some((opt) => opt.value === clubTimezone.value)
+);
 
 function buildSettingsSnapshot(): string {
   return JSON.stringify({
@@ -83,7 +96,8 @@ const isDirty = computed(
 const currentDayConfig = computed(() => weeklySchedule.value[activeDay.value]);
 
 function formatHour(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
+  const displayHour = hour === 24 ? 0 : hour;
+  return `${String(displayHour).padStart(2, "0")}:00`;
 }
 
 function getToHoursForSlot(fromHour: number): number[] {
@@ -134,16 +148,16 @@ function copyCurrentDayTo(targetDays: readonly DayOfWeekKey[], notice: string) {
 function handleFromHourChange(slot: ClubScheduleSlot, rawValue: string) {
   const nextFrom = Number.parseInt(rawValue, 10);
   if (Number.isNaN(nextFrom)) return;
-  slot.from_hour = Math.min(21, Math.max(8, nextFrom));
+  slot.from_hour = Math.min(23, Math.max(6, nextFrom));
   if (slot.to_hour <= slot.from_hour) {
-    slot.to_hour = Math.min(22, slot.from_hour + 1);
+    slot.to_hour = Math.min(24, slot.from_hour + 1);
   }
 }
 
 function handleToHourChange(slot: ClubScheduleSlot, rawValue: string) {
   const nextTo = Number.parseInt(rawValue, 10);
   if (Number.isNaN(nextTo)) return;
-  slot.to_hour = Math.min(22, Math.max(slot.from_hour + 1, nextTo));
+  slot.to_hour = Math.min(24, Math.max(slot.from_hour + 1, nextTo));
 }
 
 function handleIntervalChange(slot: ClubScheduleSlot, rawValue: string) {
@@ -193,10 +207,10 @@ function addIntervalToActiveDay() {
   const sorted = [...dayCfg.slots].sort((a, b) => a.from_hour - b.from_hour);
   const last = sorted[sorted.length - 1];
   let nextFrom = last ? last.to_hour : 10;
-  if (nextFrom >= 22) {
-    nextFrom = 8;
+  if (nextFrom >= 24) {
+    nextFrom = 6;
   }
-  const nextTo = Math.min(22, nextFrom + 2);
+  const nextTo = Math.min(24, nextFrom + 2);
 
   dayCfg.slots.push({
     id: `${activeDay.value}-${Date.now()}`,
@@ -350,6 +364,28 @@ async function publishChallengeNow() {
   }
 }
 
+async function disconnectAndPurgeClub() {
+  if (!club.value || club.value.is_default || isDisconnecting.value) return;
+  if (!window.confirm(t("settings_disconnect_confirm"))) return;
+
+  isDisconnecting.value = true;
+  statusBanner.value = null;
+  try {
+    await apiRequest(`/clubs/${encodeURIComponent(chatId.value)}`, {
+      method: "DELETE",
+    });
+    await cabinetStore.fetchCabinet();
+    await router.push("/clubs");
+  } catch (err) {
+    statusBanner.value = {
+      type: "error",
+      text: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    isDisconnecting.value = false;
+  }
+}
+
 onMounted(() => {
   void loadClub();
 });
@@ -413,10 +449,43 @@ onMounted(() => {
 
       <!-- Smart Auto-Pause Notice -->
       <div
-        v-if="club.auto_paused && isClubActive"
+        v-if="club.auto_paused && isClubActive && club.status !== 'blocked'"
         class="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-xs text-warning"
       >
         ⏸ <strong>{{ t("settings_auto_paused_badge") }}</strong> — расписание автоматически возобновится, как только кто-то в клубе решит активную задачу или сдастся.
+      </div>
+
+      <!-- Blocked Club Notice with @ProfessorMozer link & QR Code -->
+      <div
+        v-if="club.status === 'blocked'"
+        class="flex flex-col items-center gap-3 rounded-xl border border-danger/50 bg-danger/15 p-4 text-center"
+      >
+        <div class="text-sm font-bold text-danger">
+          ⛔ {{ t("settings_blocked_title") }}
+        </div>
+        <p class="text-xs text-text-primary">
+          {{ t("settings_blocked_desc") }}
+          <a
+            href="https://t.me/ProfessorMozer"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-bold text-brand underline hover:opacity-80"
+          >
+            @ProfessorMozer
+          </a>
+        </p>
+        <a
+          href="https://t.me/ProfessorMozer"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="overflow-hidden rounded-xl border border-border bg-surface p-2 transition hover:border-brand"
+        >
+          <img
+            src="/professor_mozer_qr.png"
+            alt="@ProfessorMozer QR"
+            class="h-40 w-40 object-contain"
+          />
+        </a>
       </div>
     </section>
 
@@ -439,9 +508,36 @@ onMounted(() => {
         <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
           {{ t("settings_step_4") }}
         </h2>
-        <span class="font-condensed text-[11px] text-text-secondary">
-          {{ clubTimezone }}
+        <span class="font-condensed text-[11px] text-brand font-bold">
+          06:00 – 00:00 ({{ clubTimezone }})
         </span>
+      </div>
+
+      <!-- Curated Club Timezone Selector (Default Europe/Berlin) -->
+      <div class="flex flex-col gap-1.5 rounded-lg border border-border bg-elevated p-3">
+        <label class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+          <span class="text-xs font-bold text-text-primary">
+            🌍 {{ t("settings_club_timezone") }}
+          </span>
+          <select
+            v-model="clubTimezone"
+            class="rounded-md border border-border bg-surface px-2.5 py-1.5 font-condensed text-xs font-bold text-text-primary focus:border-brand focus:outline-none"
+          >
+            <option
+              v-for="tzOpt in CLUB_TIMEZONE_OPTIONS"
+              :key="tzOpt.value"
+              :value="tzOpt.value"
+            >
+              {{ getClubTimezoneOptionLabel(tzOpt, lang) }}
+            </option>
+            <option v-if="hasCustomTimezone" :value="clubTimezone">
+              {{ clubTimezone }}
+            </option>
+          </select>
+        </label>
+        <p class="text-[11px] text-text-secondary">
+          {{ t("settings_club_timezone_hint") }}
+        </p>
       </div>
 
       <!-- 7 Weekday Tabs [Пн..Вс] -->
@@ -768,12 +864,33 @@ onMounted(() => {
 
       <button
         type="button"
-        :disabled="isPublishing"
-        class="flex-1 rounded-lg bg-brand py-3 text-sm font-bold text-on-brand transition hover:bg-brand-deep"
+        :disabled="isPublishing || club?.status === 'blocked'"
+        class="flex-1 rounded-lg bg-brand py-3 text-sm font-bold text-on-brand transition hover:bg-brand-deep disabled:opacity-50"
         @click="publishChallengeNow"
       >
         {{ t("settings_publish_now_btn") }}
       </button>
     </div>
+
+    <!-- Moderator Disconnect & Purge All Club Data -->
+    <section
+      v-if="club && !club.is_default"
+      class="glass flex flex-col gap-2.5 border border-danger/30 p-4"
+    >
+      <div class="text-xs font-bold tracking-wider text-danger uppercase">
+        {{ t("settings_disconnect_zone_title") }}
+      </div>
+      <p class="text-xs text-text-secondary">
+        {{ t("settings_disconnect_zone_desc") }}
+      </p>
+      <button
+        type="button"
+        :disabled="isDisconnecting"
+        class="w-full rounded-lg border border-danger/50 bg-danger/15 py-2.5 text-xs font-bold text-danger transition hover:bg-danger hover:text-on-brand disabled:opacity-50"
+        @click="disconnectAndPurgeClub"
+      >
+        {{ t("settings_disconnect_btn") }}
+      </button>
+    </section>
   </div>
 </template>

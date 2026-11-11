@@ -117,15 +117,22 @@ export async function ensureTeleAppSchemaAndSeed(): Promise<void> {
     CREATE TABLE IF NOT EXISTS tele_app.promo_campaigns (
       id          SERIAL PRIMARY KEY,
       title       TEXT NOT NULL,
+      file_id     TEXT,
       text_ru     TEXT NOT NULL,
       text_en     TEXT NOT NULL,
+      text_de     TEXT NOT NULL DEFAULT '',
       button_ru   TEXT,
       button_en   TEXT,
+      button_de   TEXT,
       target_url  TEXT,
       image_url   TEXT,
       is_active   BOOLEAN NOT NULL DEFAULT TRUE,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE tele_app.promo_campaigns ADD COLUMN IF NOT EXISTS file_id TEXT;
+    ALTER TABLE tele_app.promo_campaigns ADD COLUMN IF NOT EXISTS text_de TEXT NOT NULL DEFAULT '';
+    ALTER TABLE tele_app.promo_campaigns ADD COLUMN IF NOT EXISTS button_de TEXT;
   `);
 
   // Seed SuperAdmin (5106981885) and Default Club EXTRAPAWNCLUB (-1002255301933, thread 293770)

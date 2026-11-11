@@ -14,7 +14,12 @@ import {
 import { telegramBotService } from "../bot/telegramBot.service.js";
 import { env } from "../config/env.js";
 import { db } from "../db/index.js";
-import { challengeAttempts, clubAdmins, clubs } from "../db/schema.js";
+import {
+  challengeAttempts,
+  clubAdmins,
+  clubChallenges,
+  clubs,
+} from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
 
 export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -455,6 +460,69 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         ok: true,
         challenge: published,
       };
+    }
+  );
+
+  // Moderator disconnect & purge all club data from PostgreSQL
+  fastify.delete<{ Params: { chatId: string } }>(
+    "/clubs/:chatId",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const { chatId } = req.params;
+      const [row] = await db
+        .select()
+        .from(clubs)
+        .where(eq(clubs.chatId, chatId))
+        .limit(1);
+
+      if (!row) {
+        return reply.code(404).send({ error: "Club not found" });
+      }
+      if (row.isDefault) {
+        return reply
+          .code(400)
+          .send({ error: "Default official club cannot be deleted" });
+      }
+
+      const dto = await mapClubRowToSummaryDTO(
+        row,
+        req.user.telegramId,
+        req.user.isSuperadmin
+      );
+      if (!dto.is_admin) {
+        return reply
+          .code(403)
+          .send({ error: "Forbidden: Club admin permission required" });
+      }
+
+      await db
+        .delete(challengeAttempts)
+        .where(eq(challengeAttempts.chatId, chatId));
+      await db
+        .delete(clubChallenges)
+        .where(eq(clubChallenges.chatId, chatId));
+
+      // If blacklisted by SuperAdmin, purge all activity & admins while preserving the blacklist entry
+      if (row.status === "blocked") {
+        await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
+        await db
+          .update(clubs)
+          .set({
+            memberCount: 0,
+            autoPaused: false,
+            autoPauseChallengeId: null,
+            lastPublishedAt: null,
+            lastLeaderboardAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(clubs.chatId, chatId));
+        return { ok: true, deleted_club_row: false };
+      }
+
+      await telegramBotService.leaveClubChat(chatId);
+      await db.delete(clubs).where(eq(clubs.chatId, chatId));
+
+      return { ok: true, deleted_club_row: true };
     }
   );
 };

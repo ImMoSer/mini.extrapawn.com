@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { and, desc, eq, ne, or } from "drizzle-orm";
 import {
   ALL_DAYS_OF_WEEK,
@@ -771,13 +774,95 @@ export const telegramBotService = {
   },
 
   /**
-   * Broadcasts a promo campaign to all active clubs in their topic thread.
+   * Sends the localized blocked-club notice with the @ProfessorMozer QR code and link, then leaves the chat.
+   */
+  async sendBlockedClubNoticeAndLeave(
+    chatId: string,
+    topicThreadId?: number,
+    rawLang?: string | null
+  ): Promise<void> {
+    if (!env.TELEGRAM_BOT_TOKEN) return;
+
+    const lang = normalizeLang(rawLang);
+    const caption =
+      lang === "en"
+        ? `⛔ <b>Your club is temporarily blocked.</b>\nPlease contact the developer: <a href="https://t.me/ProfessorMozer">@ProfessorMozer</a>`
+        : lang === "de"
+          ? `⛔ <b>Ihr Klub ist vorübergehend gesperrt.</b>\nBitte wenden Sie sich an den Entwickler: <a href="https://t.me/ProfessorMozer">@ProfessorMozer</a>`
+          : `⛔ <b>Ваш клуб временно заблокирован.</b>\nОбратитесь к разработчику: <a href="https://t.me/ProfessorMozer">@ProfessorMozer</a>`;
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          {
+            text: "💬 @ProfessorMozer",
+            url: "https://t.me/ProfessorMozer",
+          },
+        ],
+      ],
+    };
+
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const qrAssetPath = path.resolve(
+      currentDir,
+      "../../assets/professor_mozer_qr.png"
+    );
+    let sentPhotoId: number | null = null;
+
+    if (fs.existsSync(qrAssetPath)) {
+      const qrBuffer = fs.readFileSync(qrAssetPath);
+      if (topicThreadId && topicThreadId > 0) {
+        sentPhotoId = await sendTelegramPhoto({
+          chatId,
+          messageThreadId: topicThreadId,
+          pngBuffer: qrBuffer,
+          caption,
+          replyMarkup,
+        });
+      }
+      if (!sentPhotoId) {
+        sentPhotoId = await sendTelegramPhoto({
+          chatId,
+          pngBuffer: qrBuffer,
+          caption,
+          replyMarkup,
+        });
+      }
+    }
+
+    if (!sentPhotoId) {
+      const msgPayload: Record<string, unknown> = {
+        chat_id: chatId,
+        parse_mode: "HTML",
+        text: caption,
+        reply_markup: replyMarkup,
+      };
+      if (topicThreadId && topicThreadId > 0) {
+        msgPayload.message_thread_id = topicThreadId;
+      }
+      const msgRes = await callTelegramJson("sendMessage", msgPayload);
+      if (!msgRes.ok && topicThreadId && topicThreadId > 0) {
+        delete msgPayload.message_thread_id;
+        await callTelegramJson("sendMessage", msgPayload);
+      }
+    }
+
+    await callTelegramJson("leaveChat", { chat_id: chatId });
+  },
+
+  /**
+   * Broadcasts a promo campaign to all active clubs in their topic thread:
+   * 1) Immediately sends the photo (`fileId`) via `sendPhoto` (shared across all languages).
+   * 2) Immediately follows up with the localized HTML text (`ru` | `en` | `de`) + inline button via `sendMessage`.
    */
   async broadcastPromoCampaign(promo: {
+    fileId: string | null;
     textRu: string;
     textEn: string;
+    textDe: string;
     buttonRu: string | null;
     buttonEn: string | null;
+    buttonDe: string | null;
     targetUrl: string | null;
   }): Promise<number> {
     if (!env.TELEGRAM_BOT_TOKEN) return 0;
@@ -785,13 +870,45 @@ export const telegramBotService = {
     const activeClubs = await db
       .select()
       .from(clubs)
-      .where(eq(clubs.status, "active"));
+      .where(and(eq(clubs.status, "active"), eq(clubs.isActive, true)));
 
     let sentCount = 0;
+    const cleanFileId = promo.fileId?.trim() || "";
+
     for (const club of activeClubs) {
-      const isEn = club.language === "en";
-      const text = isEn ? promo.textEn : promo.textRu;
-      const btnText = (isEn ? promo.buttonEn : promo.buttonRu) || "ExtraPawn";
+      const lang = normalizeLang(club.language);
+      const text =
+        lang === "en"
+          ? promo.textEn
+          : lang === "de"
+            ? promo.textDe || promo.textEn
+            : promo.textRu;
+      const btnText =
+        (lang === "en"
+          ? promo.buttonEn
+          : lang === "de"
+            ? promo.buttonDe || promo.buttonEn
+            : promo.buttonRu) || "ExtraPawn";
+
+      // Step 1: Send photo first if file_id is specified
+      if (cleanFileId) {
+        const photoPayload: Record<string, unknown> = {
+          chat_id: club.chatId,
+          photo: cleanFileId,
+        };
+        if (club.topicThreadId > 0) {
+          photoPayload.message_thread_id = club.topicThreadId;
+        }
+        const photoRes = await callTelegramJson("sendPhoto", photoPayload);
+        if (!photoRes.ok) {
+          console.error(
+            `[TelegramBot] Promo sendPhoto failed for club ${club.chatId}:`,
+            photoRes.description
+          );
+        }
+      }
+
+      // Step 2: Immediately send localized HTML text + inline button right below the photo
       const payload: Record<string, unknown> = {
         chat_id: club.chatId,
         parse_mode: "HTML",
@@ -825,7 +942,7 @@ export const telegramBotService = {
       await db
         .update(clubs)
         .set({ status: "bot_removed", updatedAt: new Date() })
-        .where(eq(clubs.chatId, chatId));
+        .where(and(eq(clubs.chatId, chatId), ne(clubs.status, "blocked")));
       return;
     }
 
@@ -841,9 +958,10 @@ export const telegramBotService = {
       .limit(1);
 
     if (existingClub?.status === "blocked") {
-      await this.leaveClubChat(
+      await this.sendBlockedClubNoticeAndLeave(
         chatId,
-        "⛔ Эта группа заблокирована администратором ExtraPawn. / This group is blocked by ExtraPawn Admin."
+        existingClub.topicThreadId,
+        existingClub.language
       );
       return;
     }
