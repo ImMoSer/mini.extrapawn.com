@@ -60,6 +60,7 @@ export const clubs = teleAppSchema.table("clubs", {
   isActive: boolean("is_active").notNull().default(true),
   autoPaused: boolean("auto_paused").notNull().default(false),
   autoPauseChallengeId: integer("auto_pause_challenge_id"),
+  autoPauseMessageId: integer("auto_pause_message_id"),
   weeklySchedule: jsonb("weekly_schedule").$type<WeeklyScheduleConfig>(),
   blockedReason: text("blocked_reason"),
   isDefault: boolean("is_default").notNull().default(false),

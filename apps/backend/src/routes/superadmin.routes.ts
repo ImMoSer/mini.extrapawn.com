@@ -207,6 +207,7 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
 
       // If blacklisted or default club: keep the club row so blacklist / official club remains intact
       if (row.status === "blocked" || row.isDefault) {
+        await telegramBotService.clearAutoPause(chatId);
         if (row.status === "blocked") {
           await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
         }
@@ -214,8 +215,6 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
           .update(clubs)
           .set({
             memberCount: row.status === "blocked" ? 0 : row.memberCount,
-            autoPaused: false,
-            autoPauseChallengeId: null,
             lastPublishedAt: null,
             lastLeaderboardAt: null,
             updatedAt: new Date(),

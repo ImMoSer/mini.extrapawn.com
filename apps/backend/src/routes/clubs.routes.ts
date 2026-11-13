@@ -240,13 +240,13 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
             ? "active"
             : "paused";
 
+      await telegramBotService.clearAutoPause(req.params.chatId);
+
       const [updated] = await db
         .update(clubs)
         .set({
           isActive: nextIsActive,
           status: nextStatus,
-          autoPaused: false,
-          autoPauseChallengeId: null,
           updatedAt: new Date(),
         })
         .where(eq(clubs.chatId, req.params.chatId))
@@ -504,13 +504,12 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // If blacklisted by SuperAdmin, purge all activity & admins while preserving the blacklist entry
       if (row.status === "blocked") {
+        await telegramBotService.clearAutoPause(chatId);
         await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
         await db
           .update(clubs)
           .set({
             memberCount: 0,
-            autoPaused: false,
-            autoPauseChallengeId: null,
             lastPublishedAt: null,
             lastLeaderboardAt: null,
             updatedAt: new Date(),

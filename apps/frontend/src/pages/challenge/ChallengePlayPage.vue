@@ -267,6 +267,14 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <!-- Fail-Fast Error Banner -->
+    <div
+      v-if="store.error"
+      class="panel-card border-danger/50 px-3 py-2 text-xs font-medium text-danger"
+    >
+      ⚠️ {{ store.error }}
+    </div>
+
     <!-- Interactive Chessboard (stable vertical position — never shifts!) -->
     <div
       v-if="store.challenge"
@@ -299,6 +307,15 @@ onUnmounted(() => {
     >
       <!-- Active Solving Mode Controls -->
       <template v-if="!store.isFinished">
+        <button
+          type="button"
+          :disabled="!store.canReset"
+          class="flex-1 rounded-md border border-warning/40 bg-elevated px-3 py-1.5 text-xs font-bold text-warning transition hover:border-warning disabled:cursor-not-allowed disabled:opacity-40"
+          @click="store.resetChallengeAttempt()"
+        >
+          ↺ {{ t("challenge_reset_btn") }}
+        </button>
+
         <button
           type="button"
           class="flex-1 rounded-md border border-danger/40 bg-elevated px-3 py-1.5 text-xs font-bold text-danger transition hover:border-danger"

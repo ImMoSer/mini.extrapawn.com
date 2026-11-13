@@ -32,7 +32,7 @@ function toggleLanguage() {
     </div>
   </header>
 
-  <!-- Bottom Fixed Navigation Bar: Кабинет | 🏆 Клубы | GO | ℹ️ О нас | RU -->
+  <!-- Bottom Fixed Navigation Bar: Кабинет | Клубы | GO | О нас | RU -->
   <nav
     class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur-xs"
     style="padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px))"
@@ -63,7 +63,7 @@ function toggleLanguage() {
         "
         @click="router.push('/clubs')"
       >
-        🏆 {{ t("nav_clubs") }}
+        {{ t("nav_clubs") }}
       </button>
 
       <button
@@ -89,7 +89,7 @@ function toggleLanguage() {
         "
         @click="router.push('/about')"
       >
-        ℹ️ {{ t("nav_about") }}
+        {{ t("nav_about") }}
       </button>
 
       <button

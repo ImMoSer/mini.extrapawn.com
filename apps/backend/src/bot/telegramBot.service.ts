@@ -597,6 +597,8 @@ export const telegramBotService = {
       })
       .where(eq(clubs.chatId, chatId));
 
+    await this.clearAutoPause(chatId);
+
     return inserted;
   },
 
@@ -1200,6 +1202,7 @@ export const telegramBotService = {
         isActive: true,
         autoPaused: false,
         autoPauseChallengeId: null,
+        autoPauseMessageId: null,
         weeklySchedule: createDefaultWeeklySchedule(),
         isDefault: chatId === env.DEFAULT_CLUB_CHAT_ID,
       })
@@ -1215,6 +1218,8 @@ export const telegramBotService = {
           updatedAt: new Date(),
         },
       });
+
+    await this.clearAutoPause(chatId);
 
     await db
       .insert(clubAdmins)
@@ -1288,19 +1293,49 @@ export const telegramBotService = {
   },
 
   /**
-   * Clears `autoPaused` on the club once there are no unresolved challenges remaining.
+   * Clears `autoPaused` on the club and deletes the Telegram auto-pause notification message if present.
    */
-  async checkAndResumeAutoPause(chatId: string): Promise<void> {
-    const unresolved = await this.findLatestUnresolvedChallenge(chatId);
-    if (!unresolved) {
+  async clearAutoPause(chatId: string): Promise<void> {
+    const [club] = await db
+      .select({
+        autoPaused: clubs.autoPaused,
+        autoPauseChallengeId: clubs.autoPauseChallengeId,
+        autoPauseMessageId: clubs.autoPauseMessageId,
+      })
+      .from(clubs)
+      .where(eq(clubs.chatId, chatId))
+      .limit(1);
+
+    if (!club) return;
+
+    if (
+      club.autoPaused ||
+      club.autoPauseChallengeId !== null ||
+      club.autoPauseMessageId !== null
+    ) {
       await db
         .update(clubs)
         .set({
           autoPaused: false,
           autoPauseChallengeId: null,
+          autoPauseMessageId: null,
           updatedAt: new Date(),
         })
-        .where(and(eq(clubs.chatId, chatId), eq(clubs.autoPaused, true)));
+        .where(eq(clubs.chatId, chatId));
+    }
+
+    if (club.autoPauseMessageId) {
+      await deleteTelegramMessage(chatId, club.autoPauseMessageId);
+    }
+  },
+
+  /**
+   * Clears `autoPaused` on the club once there are no unresolved challenges remaining.
+   */
+  async checkAndResumeAutoPause(chatId: string): Promise<void> {
+    const unresolved = await this.findLatestUnresolvedChallenge(chatId);
+    if (!unresolved) {
+      await this.clearAutoPause(chatId);
     }
   },
 };
@@ -1401,8 +1436,8 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
 async function notifyAutoPauseReplyOnce(
   club: typeof clubs.$inferSelect,
   unresolvedChallenge: typeof clubChallenges.$inferSelect
-): Promise<void> {
-  if (!env.TELEGRAM_BOT_TOKEN) return;
+): Promise<number | null> {
+  if (!env.TELEGRAM_BOT_TOKEN) return null;
 
   const lang = normalizeLang(club.language);
   const text =
@@ -1461,7 +1496,11 @@ async function notifyAutoPauseReplyOnce(
     };
   }
 
-  await callTelegramJson("sendMessage", payload);
+  const res = await callTelegramJson<{ message_id: number }>(
+    "sendMessage",
+    payload
+  );
+  return res.result?.message_id ?? null;
 }
 
 let lastThirtyDayCleanupAt = 0;
@@ -1548,17 +1587,34 @@ async function runScheduledClubsTick(): Promise<void> {
           !club.autoPaused &&
           club.autoPauseChallengeId !== unresolved.id
         ) {
+          if (club.autoPauseMessageId) {
+            await deleteTelegramMessage(club.chatId, club.autoPauseMessageId);
+          }
+
           await db
             .update(clubs)
             .set({
               autoPaused: true,
               autoPauseChallengeId: unresolved.id,
+              autoPauseMessageId: null,
               updatedAt: new Date(),
             })
             .where(eq(clubs.chatId, club.chatId));
 
           try {
-            await notifyAutoPauseReplyOnce(club, unresolved);
+            const pauseMessageId = await notifyAutoPauseReplyOnce(
+              club,
+              unresolved
+            );
+            if (pauseMessageId) {
+              await db
+                .update(clubs)
+                .set({
+                  autoPauseMessageId: pauseMessageId,
+                  updatedAt: new Date(),
+                })
+                .where(eq(clubs.chatId, club.chatId));
+            }
           } catch (err) {
             console.error(
               `[TelegramBot] Auto-pause notification failed for club ${club.chatId}:`,
@@ -1569,15 +1625,8 @@ async function runScheduledClubsTick(): Promise<void> {
         continue;
       }
 
-      if (club.autoPaused) {
-        await db
-          .update(clubs)
-          .set({
-            autoPaused: false,
-            autoPauseChallengeId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(clubs.chatId, club.chatId));
+      if (club.autoPaused || club.autoPauseMessageId !== null) {
+        await telegramBotService.clearAutoPause(club.chatId);
       }
 
       try {

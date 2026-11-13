@@ -34,6 +34,35 @@ export interface AppliedMoveResult {
   isDraw: boolean;
 }
 
+/**
+ * Extracts the first 4 FEN fields (piece placement, active color, castling, en passant)
+ * per FIDE Article 9.2 for threefold repetition comparison.
+ */
+export function normalizeFenForRepetition(fen: string): string {
+  return fen.trim().split(/\s+/).slice(0, 4).join(" ");
+}
+
+/**
+ * Returns true when `currentFen` appears at least 3 times in `fenHistory`
+ * (including the starting position and the latest position).
+ */
+export function isThreefoldRepetition(
+  fenHistory: readonly string[],
+  currentFen: string
+): boolean {
+  const target = normalizeFenForRepetition(currentFen);
+  let occurrences = 0;
+  for (const historicFen of fenHistory) {
+    if (normalizeFenForRepetition(historicFen) === target) {
+      occurrences += 1;
+      if (occurrences >= 3) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export interface ReplayStepSnapshot {
   stepIndex: number;
   fen: string;

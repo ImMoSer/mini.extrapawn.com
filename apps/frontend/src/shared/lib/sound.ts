@@ -128,6 +128,7 @@ export function playAppliedMoveSound(move: {
   isStalemate?: boolean;
   isInsufficientMaterial?: boolean;
   isFiftyMoves?: boolean;
+  isThreefoldRepetition?: boolean;
   isCheck: boolean;
   isPromotion?: boolean;
   isCastle?: boolean;
@@ -147,6 +148,10 @@ export function playAppliedMoveSound(move: {
   }
   if (move.isFiftyMoves) {
     soundService.play("fifty_moves_no_progress");
+    return;
+  }
+  if (move.isThreefoldRepetition) {
+    soundService.play("draw_by_repetition");
     return;
   }
   if (move.isCheck) {
