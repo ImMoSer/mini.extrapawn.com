@@ -77,7 +77,7 @@ export const ALL_CHALLENGE_DIFFICULTIES: readonly ChallengeDifficulty[] = [
   "Master",
 ] as const;
 
-export type BotEngineId = "maia-1500" | "maia-2200" | "mozero";
+export type BotEngineId = "mozero";
 
 export type ChallengeAttemptStatus = "in_progress" | "solved" | "surrendered";
 
@@ -800,15 +800,15 @@ export const DEFAULT_PROMO_FILE_ID =
 
 export const DEFAULT_PROMO_TRANSLATIONS: PromoTranslationsPayload = {
   ru: {
-    text: "♟ <b>Тренируйся как Профи на ExtraPawn.com!</b>\n<i>Глубокий анализ</i> партий и спарринг с ботами Maia и MOZERO.\n<blockquote>Решай задачи и расти в рейтинге каждый день!</blockquote>",
+    text: "♟ <b>Тренируйся как Профи на ExtraPawn.com!</b>\n<i>Глубокий анализ</i> партий и спарринг с системой MOZERO.\n<blockquote>Решай задачи и расти в рейтинге каждый день!</blockquote>",
     button: "🚀 Открыть ExtraPawn.com",
   },
   en: {
-    text: "♟ <b>Train like a Pro on ExtraPawn.com!</b>\n<i>Deep game analysis</i> and sparring with Maia & MOZERO bots.\n<blockquote>Solve puzzles and climb the rating ladder every day!</blockquote>",
+    text: "♟ <b>Train like a Pro on ExtraPawn.com!</b>\n<i>Deep game analysis</i> and sparring with the MOZERO neural system.\n<blockquote>Solve puzzles and climb the rating ladder every day!</blockquote>",
     button: "🚀 Open ExtraPawn.com",
   },
   de: {
-    text: "♟ <b>Trainiere wie ein Profi auf ExtraPawn.com!</b>\n<i>Tiefe Partieanalyse</i> und Sparring gegen Maia & MOZERO Bots.\n<blockquote>Löse Aufgaben und steigere täglich deine Wertungszahl!</blockquote>",
+    text: "♟ <b>Trainiere wie ein Profi auf ExtraPawn.com!</b>\n<i>Tiefe Partieanalyse</i> und Sparring gegen das MOZERO-System.\n<blockquote>Löse Aufgaben und steigere täglich deine Wertungszahl!</blockquote>",
     button: "🚀 ExtraPawn.com öffnen",
   },
 };

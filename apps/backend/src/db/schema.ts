@@ -128,7 +128,7 @@ export const clubChallenges = teleAppSchema.table(
     puzzleId: text("puzzle_id").notNull(),
     edition: text("edition").notNull().default("0"),
     difficulty: text("difficulty").notNull().default("Novice"),
-    botEngine: text("bot_engine").notNull().default("maia-1500"),
+    botEngine: text("bot_engine").notNull().default("mozero"),
     initialFen: text("initial_fen").notNull(),
     puzzleFen: text("puzzle_fen").notNull(),
     userColor: text("user_color").notNull(),

@@ -43,7 +43,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
-│   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (Maia/MOZERO) и tableservice:5000
+│   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и tableservice:5000
 │   │       │   └── clubMapper.ts             # Маппинг строки клуба в ClubSummaryDTO
 │   │       └── routes/
 │   │           ├── cabinet.routes.ts         # GET /api/cabinet, PATCH /api/cabinet/language
@@ -89,7 +89,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 | :-------------------- | :-------------------------- | :---------------------- | :---------------------------------------------------------------------------------- |
 | **`postgres-server`** | `postgres-server:5432`      | `127.0.0.1:5432`        | БД `chess_db`, изолированная схема **`tele_app.*`**                                 |
 | **`puzzle-engine`**   | `http://puzzle-engine:5000` | `http://127.0.0.1:5001` | Каталог задач SQLite v8 с предрассчитанным полем `puzzle_fen`                       |
-| **`engine-hub`**      | `http://engine-hub:5000`    | `http://127.0.0.1:5005` | Ходы ботов в PlayOut: `maia-1500` (Новичок), `maia-2200` (Профи), `mozero` (Мастер) |
+| **`engine-hub`**      | `http://engine-hub:5000`    | `http://127.0.0.1:5005` | Ходы бота в PlayOut: единый движок `mozero` (`Novice`, `Pro`, `Master`)          |
 | **`tableservice`**    | `http://tableservice:5000`  | `http://127.0.0.1:5006` | Эндшпильные таблицы Gaviota/Syzygy для позиций `<= 5` фигур                         |
 | **WASM Stockfish**    | В браузере клиента          | В браузере              | Локальный анализ позиции после решения или сдачи челленджа                          |
 

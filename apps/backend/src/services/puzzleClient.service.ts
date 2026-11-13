@@ -109,7 +109,7 @@ export function normalizePuzzlePayload(
     }
     const discipline = t.discipline;
     const difficulty = t.difficulty || "Novice";
-    const botEngine = resolveBotEngine(discipline, difficulty);
+    const botEngine = resolveBotEngine();
     const initialFen = t.tactical_fen;
     const puzzleFen = t.puzzle_fen;
     const firstMove = t.first_move;
@@ -155,7 +155,7 @@ export function normalizePuzzlePayload(
     }
     const discipline = e.discipline;
     const difficulty = e.difficulty || "Novice";
-    const botEngine = resolveBotEngine(discipline, difficulty);
+    const botEngine = resolveBotEngine();
     const initialFen =
       e.strategy === "scenarioPlus" && e.tactical_fen
         ? e.tactical_fen

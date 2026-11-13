@@ -60,7 +60,7 @@ mini.extrapawn.com/
 | :--- | :--- | :--- |
 | **`postgres-server`** | `postgres-server:5432` | PostgreSQL database (`chess_db`, isolated schema `tele_app.*`) |
 | **`puzzle-engine`** | `http://puzzle-engine:5000` | Curated puzzle catalog (`CatalogSchemaVersion = 8`) with precomputed `puzzle_fen` |
-| **`engine-hub`** | `http://engine-hub:5000` | Sparring bots: `maia-1500` (Novice), `maia-2200` (Pro), `mozero` (Master) |
+| **`engine-hub`** | `http://engine-hub:5000` | Unified sparring system: `mozero` (`Novice`, `Pro`, `Master`) |
 | **`tableservice`** | `http://tableservice:5000` | Gaviota / Syzygy endgame tablebases for positions with `<= 5` pieces |
 | **WASM Stockfish 19** | Client Browser (WebWorker) | Local `MultiPV = 3` engine analysis after completing or surrendering a challenge |
 
@@ -95,8 +95,8 @@ This project is licensed under the **GNU General Public License v3.0** ([LICENSE
 - **RU:** Анализ и поиск истины обеспечиваются **Stockfish** — сильнейшим в мире шахматным движком с открытым исходным кодом (GNU GPLv3).
 
 ### 2. MOZERO Sparring System & Neural Hub (Our In-House Engineering / Наша разработка)
-- **EN:** Realistic sparring is powered by human-like **Maia** models (`1500` and `2200` Elo) and our custom in-house hybrid **MOZERO** system built on `lc0_32_1`, `Elite-Leela-v2-128x10x8h-1704000.pb.gz` weights, and a specialized Python wrapper integrated with **Syzygy & Gaviota** endgame tablebases. Special thanks to the author of [CallOn84/LeelaNets](https://github.com/CallOn84/LeelaNets) for publishing the neural network weights.
-- **RU:** Реалистичный спарринг обеспечивается человекоподобными моделями **Maia** (`1500` и `2200` Elo) и нашей собственной гибридной системой **MOZERO** на базе стандартного движка `lc0_32_1`, весов `Elite-Leela-v2-128x10x8h-1704000.pb.gz` и специализированной Python-обвязки с эндшпильными базами **Syzygy & Gaviota**. Особая благодарность автору репозитория [CallOn84/LeelaNets](https://github.com/CallOn84/LeelaNets) за публикацию весов нейросети.
+- **EN:** Realistic sparring across all disciplines and difficulty tiers is powered by our custom in-house hybrid **MOZERO** system built on `lc0_32_1`, `Elite-Leela-v2-128x10x8h-1704000.pb.gz` weights, and a specialized Python wrapper integrated with **Syzygy & Gaviota** endgame tablebases. Special thanks to the author of [CallOn84/LeelaNets](https://github.com/CallOn84/LeelaNets) for publishing the neural network weights.
+- **RU:** Реалистичный спарринг во всех дисциплинах и уровнях сложности обеспечивается нашей собственной гибридной системой **MOZERO** на базе стандартного движка `lc0_32_1`, весов `Elite-Leela-v2-128x10x8h-1704000.pb.gz` и специализированной Python-обвязки с эндшпильными базами **Syzygy & Gaviota**. Особая благодарность автору репозитория [CallOn84/LeelaNets](https://github.com/CallOn84/LeelaNets) за публикацию весов нейросети.
 
 ### 3. Leela Chess Zero (LCZero)
 - **EN:** Our neural network layer runs on [LCZero](https://lczero.org/) — the pioneering engine that brought AI chess to the wider community. Huge respect to the LCZero community.

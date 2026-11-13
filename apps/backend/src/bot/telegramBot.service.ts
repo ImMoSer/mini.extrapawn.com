@@ -125,27 +125,6 @@ const PLAIN_DIFFICULTY_LABELS: Record<
   },
 };
 
-const DIFFICULTY_LABELS: Record<
-  AppLanguage,
-  Record<ChallengeDifficulty, string>
-> = {
-  ru: {
-    Novice: "Новичок (Maia 1500)",
-    Pro: "Профи (Maia 2200)",
-    Master: "Мастер (MOZERO)",
-  },
-  en: {
-    Novice: "Novice (Maia 1500)",
-    Pro: "Pro (Maia 2200)",
-    Master: "Master (MOZERO)",
-  },
-  de: {
-    Novice: "Einsteiger (Maia 1500)",
-    Pro: "Profi (Maia 2200)",
-    Master: "Meister (MOZERO)",
-  },
-};
-
 function normalizeLang(raw: string | null | undefined): AppLanguage {
   if (raw === "en" || raw === "de") return raw;
   return "ru";
@@ -170,9 +149,7 @@ function buildChallengeCaption(
   const diffLabel =
     puzzle.discipline === "tactics"
       ? plainDiffLabel
-      : puzzle.discipline === "theoretical_endgames"
-        ? `${plainDiffLabel} (MOZERO)`
-        : DIFFICULTY_LABELS[lang][puzzle.difficulty];
+      : `${plainDiffLabel} (MOZERO)`;
 
   const categoryLabel = formatFocusLabel(
     puzzle.discipline,

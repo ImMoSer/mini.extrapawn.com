@@ -768,17 +768,7 @@ onMounted(() => {
                 @click="slot.difficulty = diff"
               >
                 <span class="text-xs font-bold">{{ difficultyTitle(diff) }}</span>
-                <span class="text-[10px] opacity-80">
-                  {{
-                    slot.discipline === "theoretical_endgames"
-                      ? "MOZERO"
-                      : diff === "Novice"
-                        ? "Maia 1500"
-                        : diff === "Pro"
-                          ? "Maia 2200"
-                          : "MOZERO"
-                  }}
-                </span>
+                <span class="text-[10px] opacity-80">MOZERO</span>
               </button>
             </div>
           </div>

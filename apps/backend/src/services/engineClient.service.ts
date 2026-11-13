@@ -1,29 +1,17 @@
-import type { BotEngineId, ChallengeDifficulty, ChallengeDiscipline } from "shared";
+import type { BotEngineId } from "shared";
 import { env } from "../config/env.js";
 
 const maiaHubUrl = env.MAIA_HUB_URL.replace(/\/+$/, "");
 const tableServiceUrl = env.TABLESERVICE_URL.replace(/\/+$/, "");
 const coachEngineUrl = env.COACH_ENGINE_URL.replace(/\/+$/, "");
 
-export function resolveBotEngine(
-  discipline: ChallengeDiscipline,
-  difficulty: ChallengeDifficulty
-): BotEngineId {
-  if (discipline === "theoretical_endgames") {
-    return "mozero";
-  }
-  if (difficulty === "Master") {
-    return "mozero";
-  }
-  if (difficulty === "Pro") {
-    return "maia-2200";
-  }
-  return "maia-1500";
+export function resolveBotEngine(): BotEngineId {
+  return "mozero";
 }
 
 export const engineClientService = {
   /**
-   * Requests the best move from `engine-hub:5000` (`maia-1500`, `maia-2200`, or `mozero`).
+   * Requests the best move from `engine-hub:5000` (`mozero`).
    */
   async getBestMove(
     engine: BotEngineId,

@@ -187,7 +187,7 @@ const DICT = {
       "Анализ и поиск истины обеспечиваются Stockfish — сильнейшим в мире шахматным движком с открытым исходным кодом (GNU GPLv3).",
     about_sec3_mozero_title: "Система спарринга MOZERO и нейросетевой хаб (наша разработка)",
     about_sec3_mozero_desc:
-      "Реалистичный спарринг обеспечивается человекоподобными моделями Maia (1500 и 2200 Elo) и нашей собственной гибридной системой MOZERO на базе движка lc0_32_1, весов Elite-Leela-v2-128x10x8h-1704000.pb.gz и специализированной Python-обвязки с эндшпильными базами Syzygy & Gaviota. Особая благодарность автору репозитория CallOn84/LeelaNets за публикацию весов нейросети.",
+      "Реалистичный спарринг во всех дисциплинах и уровнях сложности обеспечивается нашей собственной гибридной системой MOZERO на базе движка lc0_32_1, весов Elite-Leela-v2-128x10x8h-1704000.pb.gz и специализированной Python-обвязки с эндшпильными базами Syzygy & Gaviota. Особая благодарность автору репозитория CallOn84/LeelaNets за публикацию весов нейросети.",
     about_sec3_lczero_title: "Leela Chess Zero (LCZero)",
     about_sec3_lczero_desc:
       "Наш нейросетевой слой работает на LCZero — новаторском движке, который открыл доступ к ИИ-шахматам широким массам. Уважение сообществу LCZero.",
@@ -385,7 +385,7 @@ const DICT = {
       "Analysis and truth-seeking are powered by Stockfish, the world's strongest open-source chess engine (GNU GPLv3).",
     about_sec3_mozero_title: "MOZERO Sparring System & Neural Hub (Our In-House Engineering)",
     about_sec3_mozero_desc:
-      "Realistic sparring is powered by human-like Maia models (1500 & 2200 Elo) and our custom hybrid MOZERO system built on lc0_32_1, Elite-Leela-v2-128x10x8h-1704000.pb.gz weights, and a specialized Python wrapper with Syzygy & Gaviota endgame tablebases. Special thanks to CallOn84/LeelaNets for publishing the neural network weights.",
+      "Realistic sparring across all disciplines and difficulty tiers is powered by our custom hybrid MOZERO system built on lc0_32_1, Elite-Leela-v2-128x10x8h-1704000.pb.gz weights, and a specialized Python wrapper with Syzygy & Gaviota endgame tablebases. Special thanks to CallOn84/LeelaNets for publishing the neural network weights.",
     about_sec3_lczero_title: "Leela Chess Zero (LCZero)",
     about_sec3_lczero_desc:
       "Our neural network layer runs on LCZero — the pioneering engine that brought AI chess to the wider community. Huge respect to the LCZero team.",
@@ -583,7 +583,7 @@ const DICT = {
       "Analyse und Wahrheitssuche werden von Stockfish bereitgestellt, der weltweit stärksten Open-Source-Schach-Engine (GNU GPLv3).",
     about_sec3_mozero_title: "MOZERO Sparring-System & Neural Hub (Unsere Eigenentwicklung)",
     about_sec3_mozero_desc:
-      "Realistisches Sparring wird durch menschenähnliche Maia-Modelle (1500 & 2200 Elo) und unser eigenes hybrides MOZERO-System auf Basis von lc0_32_1, den Gewichten Elite-Leela-v2-128x10x8h-1704000.pb.gz und einer spezialisierten Python-Anbindung mit Syzygy- & Gaviota-Endspieldatenbanken ermöglicht. Besonderer Dank gilt CallOn84/LeelaNets für die Veröffentlichung der Netzgewichte.",
+      "Realistisches Sparring in allen Disziplinen und Stufen wird durch unser eigenes hybrides MOZERO-System auf Basis von lc0_32_1, den Gewichten Elite-Leela-v2-128x10x8h-1704000.pb.gz und einer spezialisierten Python-Anbindung mit Syzygy- & Gaviota-Endspieldatenbanken ermöglicht. Besonderer Dank gilt CallOn84/LeelaNets für die Veröffentlichung der Netzgewichte.",
     about_sec3_lczero_title: "Leela Chess Zero (LCZero)",
     about_sec3_lczero_desc:
       "Unsere neuronale Schicht basiert auf LCZero — der bahnbrechenden Engine, die KI-Schach für alle zugänglich gemacht hat. Großer Respekt an die LCZero-Community.",
