@@ -202,6 +202,32 @@ const DICT = {
     about_link_imprint: "Impressum / Выходные данные",
     about_link_privacy: "Datenschutz / Конфиденциальность",
     about_link_terms: "Nutzungsbedingungen / Условия (AGB)",
+    clubs_loading: "Загрузка рейтинга клубов...",
+    clubs_select_lang_label:
+      "Выберите язык будущей супергруппы (обязательно):",
+    clubs_select_lang_hint:
+      "Все сообщения бота будут на выбранном языке (позже его можно изменить в настройках клуба).",
+    go_loading: "Загрузка активных челленджей...",
+    records_empty_club: "Пока нет решенных челленджей в этом клубе.",
+    records_puzzle_prefix: "Задача",
+    records_open_board_btn: "♟ Открыть доску",
+    challenge_moves_locked: "🔒 Ходы других игроков откроются после решения",
+    settings_err_overlap:
+      "Интервалы времени не должны пересекаться в пределах одного дня!",
+    settings_auto_paused_desc:
+      "расписание автоматически возобновится, как только кто-то в клубе решит активную задачу или сдастся.",
+    settings_copied_weekdays: "Расписание скопировано на будни (Пн–Пт)",
+    settings_copied_all_week: "Расписание применено ко всей неделе (Пн–Вс)",
+    settings_day_off_placeholder:
+      "😴 В этот день недели публикация челленджей отключена",
+    settings_day_overlap_warn:
+      "⚠️ Интервалы на этот день пересекаются! Пожалуйста, скорректируйте часы начала/окончания.",
+    settings_remove_interval: "Удалить интервал",
+    coach_analyzing: "⏳ Анализ...",
+    coach_arrows: "👁 Стрелки",
+    coach_candidates_title: "Кандидаты движка",
+    coach_click_hint: "нажмите для плана на доске",
+    coach_no_candidates: "Нет доступных кандидатов для этой позиции.",
   },
   en: {
     nav_cabinet: "Cabinet",
@@ -396,6 +422,32 @@ const DICT = {
     about_link_imprint: "Imprint / Impressum",
     about_link_privacy: "Privacy Policy / Datenschutz",
     about_link_terms: "Terms of Use / AGB",
+    clubs_loading: "Loading club rankings...",
+    clubs_select_lang_label:
+      "Select supergroup language for bot messages (required):",
+    clubs_select_lang_hint:
+      "All bot messages will use this language (you can change it anytime later in Club Settings).",
+    go_loading: "Loading active challenges...",
+    records_empty_club: "No solved challenges in this club yet.",
+    records_puzzle_prefix: "Puzzle",
+    records_open_board_btn: "♟ Open Board",
+    challenge_moves_locked: "🔒 Other players' moves unlock after solving",
+    settings_err_overlap:
+      "Time intervals within the same day must not overlap!",
+    settings_auto_paused_desc:
+      "the schedule will automatically resume once someone in the club solves or surrenders the active challenge.",
+    settings_copied_weekdays: "Schedule copied to weekdays (Mon–Fri)",
+    settings_copied_all_week: "Schedule applied to all week (Mon–Sun)",
+    settings_day_off_placeholder:
+      "😴 Scheduled challenges are disabled on this day",
+    settings_day_overlap_warn:
+      "⚠️ Intervals on this day overlap! Please adjust start/end hours.",
+    settings_remove_interval: "Remove interval",
+    coach_analyzing: "⏳ Analyzing...",
+    coach_arrows: "👁 Arrows",
+    coach_candidates_title: "Engine Candidates",
+    coach_click_hint: "tap to preview plan",
+    coach_no_candidates: "No candidate moves available for this position.",
   },
   de: {
     nav_cabinet: "Profil",
@@ -590,6 +642,33 @@ const DICT = {
     about_link_imprint: "Impressum",
     about_link_privacy: "Datenschutzerklärung",
     about_link_terms: "Nutzungsbedingungen (AGB)",
+    clubs_loading: "Klub-Rangliste wird geladen...",
+    clubs_select_lang_label:
+      "Sprache der Supergruppe für Bot-Nachrichten wählen (Pflichtfeld):",
+    clubs_select_lang_hint:
+      "Alle Bot-Nachrichten erscheinen in dieser Sprache (später jederzeit in den Klub-Einstellungen änderbar).",
+    go_loading: "Aktive Challenges werden geladen...",
+    records_empty_club: "Noch keine gelösten Challenges in diesem Klub.",
+    records_puzzle_prefix: "Aufgabe",
+    records_open_board_btn: "♟ Brett öffnen",
+    challenge_moves_locked:
+      "🔒 Züge anderer Spieler werden nach Lösung freigeschaltet",
+    settings_err_overlap:
+      "Zeitintervalle innerhalb desselben Tages dürfen sich nicht überschneiden!",
+    settings_auto_paused_desc:
+      "der Zeitplan läuft automatisch weiter, sobald jemand im Klub die aktive Challenge löst oder aufgibt.",
+    settings_copied_weekdays: "Zeitplan auf Werktage kopiert (Mo–Fr)",
+    settings_copied_all_week: "Zeitplan auf die ganze Woche angewendet (Mo–So)",
+    settings_day_off_placeholder:
+      "😴 An diesem Wochentag sind Challenges deaktiviert",
+    settings_day_overlap_warn:
+      "⚠️ Intervalle an diesem Tag überschneiden sich! Bitte Start-/Endzeiten anpassen.",
+    settings_remove_interval: "Intervall entfernen",
+    coach_analyzing: "⏳ Analyse...",
+    coach_arrows: "👁 Pfeile",
+    coach_candidates_title: "Engine-Kandidaten",
+    coach_click_hint: "für Plan auf dem Brett tippen",
+    coach_no_candidates: "Keine Kandidatenzüge für diese Stellung verfügbar.",
   },
 } as const;
 

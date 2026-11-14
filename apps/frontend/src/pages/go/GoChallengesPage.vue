@@ -73,7 +73,7 @@ onMounted(() => {
       v-if="loading"
       class="panel-card p-6 text-center text-sm text-text-secondary"
     >
-      Загрузка активных челленджей...
+      {{ t("go_loading") }}
     </div>
 
     <div

@@ -281,7 +281,7 @@ async function saveSettings(): Promise<boolean> {
   if (overlappingDays.value.length > 0) {
     statusBanner.value = {
       type: "error",
-      text: "Интервалы времени не должны пересекаться в пределах одного дня!",
+      text: t("settings_err_overlap"),
     };
     return false;
   }
@@ -466,7 +466,7 @@ onMounted(() => {
         v-if="club.auto_paused && isClubActive && club.status !== 'blocked'"
         class="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-xs text-warning"
       >
-        ⏸ <strong>{{ t("settings_auto_paused_badge") }}</strong> — расписание автоматически возобновится, как только кто-то в клубе решит активную задачу или сдастся.
+        ⏸ <strong>{{ t("settings_auto_paused_badge") }}</strong> — {{ t("settings_auto_paused_desc") }}
       </div>
 
       <!-- Blocked Club Notice with @ProfessorMozer link & QR Code -->
@@ -616,7 +616,7 @@ onMounted(() => {
             @click="
               copyCurrentDayTo(
                 ['mon', 'tue', 'wed', 'thu', 'fri'],
-                'Расписание скопировано на будни (Пн–Пт)'
+                t('settings_copied_weekdays')
               )
             "
           >
@@ -629,7 +629,7 @@ onMounted(() => {
             @click="
               copyCurrentDayTo(
                 ALL_DAYS_OF_WEEK,
-                'Расписание применено ко всей неделе (Пн–Вс)'
+                t('settings_copied_all_week')
               )
             "
           >
@@ -643,7 +643,7 @@ onMounted(() => {
         v-if="!currentDayConfig.enabled"
         class="rounded-lg border border-dashed border-border py-6 text-center text-xs text-text-secondary"
       >
-        😴 В этот день недели публикация челленджей отключена ({{ t("settings_day_off") }}).
+        {{ t("settings_day_off_placeholder") }} ({{ t("settings_day_off") }}).
       </div>
 
       <!-- Active Day Interval Slots -->
@@ -652,7 +652,7 @@ onMounted(() => {
           v-if="hasOverlapInDay(activeDay)"
           class="rounded-lg border border-danger/40 bg-danger/15 px-3 py-2 text-xs font-semibold text-danger"
         >
-          ⚠️ Интервалы на этот день пересекаются! Пожалуйста, скорректируйте часы начала/окончания.
+          {{ t("settings_day_overlap_warn") }}
         </div>
 
         <div
@@ -733,7 +733,7 @@ onMounted(() => {
             <button
               type="button"
               class="rounded-md border border-border bg-surface px-2 py-1 text-xs font-bold text-text-secondary transition hover:border-danger hover:text-danger"
-              title="Удалить интервал"
+              :title="t('settings_remove_interval')"
               @click="removeIntervalFromActiveDay(slot.id)"
             >
               ✕

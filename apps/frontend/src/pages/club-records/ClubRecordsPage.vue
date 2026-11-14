@@ -322,7 +322,7 @@ onMounted(() => {
         v-if="!data.records.length"
         class="py-6 text-center text-xs text-text-secondary"
       >
-        Пока нет решенных челленджей в этом клубе.
+        {{ t("records_empty_club") }}
       </div>
 
       <div

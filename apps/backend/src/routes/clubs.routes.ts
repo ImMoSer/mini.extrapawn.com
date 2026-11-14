@@ -21,7 +21,77 @@ import {
 } from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
 
+const CLUB_ROUTE_ERRORS = {
+  ru: {
+    notFound: "Клуб не найден",
+    forbiddenManager:
+      "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+    blockedClub: "Этот клуб временно заблокирован администратором платформы.",
+    botRemoved:
+      "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+    maxIntervals: "Не более 8 интервалов на один день недели.",
+    invalidIntervalBounds:
+      "Время начала интервала должно быть меньше времени окончания.",
+    overlappingIntervals:
+      "Интервалы расписания в пределах одного дня не должны пересекаться.",
+    invalidLanguage: "Выберите язык группы: EN, DE или RU.",
+  },
+  en: {
+    notFound: "Club not found",
+    forbiddenManager:
+      "Access is restricted to the supergroup owner or an administrator with the 'Manage Topics' permission.",
+    blockedClub: "This club is temporarily blocked by the platform administrator.",
+    botRemoved:
+      "The bot was removed from this supergroup. Please add @ExtraPawnTeleBot back to the chat.",
+    maxIntervals: "Maximum 8 intervals per day of the week.",
+    invalidIntervalBounds:
+      "Interval start time must be earlier than end time.",
+    overlappingIntervals:
+      "Schedule intervals within the same day must not overlap.",
+    invalidLanguage: "Please select a group language: EN, DE, or RU.",
+  },
+  de: {
+    notFound: "Klub nicht gefunden",
+    forbiddenManager:
+      "Zugriff ist nur dem Eigentümer der Supergruppe oder einem Administrator mit dem Recht „Themen verwalten“ (Manage Topics) gestattet.",
+    blockedClub:
+      "Dieser Klub ist vom Plattform-Administrator vorübergehend gesperrt.",
+    botRemoved:
+      "Der Bot wurde aus dieser Supergruppe entfernt. Bitte fügen Sie @ExtraPawnTeleBot wieder zum Chat hinzu.",
+    maxIntervals: "Maximal 8 Intervalle pro Wochentag.",
+    invalidIntervalBounds:
+      "Die Startzeit eines Intervalls muss vor der Endzeit liegen.",
+    overlappingIntervals:
+      "Zeitplan-Intervalle innerhalb desselben Tages dürfen sich nicht überschneiden.",
+    invalidLanguage: "Bitte wählen Sie eine Gruppensprache: EN, DE oder RU.",
+  },
+} as const;
+
+function getClubRouteErrors(rawLang?: string | null) {
+  if (rawLang === "en" || rawLang === "de") {
+    return CLUB_ROUTE_ERRORS[rawLang];
+  }
+  return CLUB_ROUTE_ERRORS.ru;
+}
+
 export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
+  // Pre-registers the mandatory group language (EN / DE / RU) chosen by an admin before adding @ExtraPawnTeleBot
+  fastify.post<{ Body: { language?: string } }>(
+    "/clubs/onboarding-language",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const lang = req.body?.language;
+      if (lang !== "en" && lang !== "de" && lang !== "ru") {
+        const msg = getClubRouteErrors(req.user.languageCode).invalidLanguage;
+        return reply.code(400).send({ error: msg });
+      }
+      telegramBotService.setPendingOnboardingLanguage(
+        req.user.telegramId,
+        lang
+      );
+      return { ok: true, language: lang };
+    }
+  );
   // Inter-Club 7-Day Competition Leaderboard (/api/clubs/leaderboard)
   fastify.get(
     "/clubs/leaderboard",
@@ -165,7 +235,9 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (!row) {
-        return reply.code(404).send({ error: "Club not found" });
+        return reply
+          .code(404)
+          .send({ error: getClubRouteErrors(req.user.languageCode).notFound });
       }
 
       if (!req.user.isSuperadmin && row.status !== "blocked" && row.status !== "bot_removed") {
@@ -197,8 +269,10 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(clubs.chatId, req.params.chatId))
         .limit(1);
 
+      const errs = getClubRouteErrors(req.user.languageCode);
+
       if (!row) {
-        return reply.code(404).send({ error: "Club not found" });
+        return reply.code(404).send({ error: errs.notFound });
       }
 
       const canManage =
@@ -210,26 +284,23 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         ));
       if (!canManage) {
         return reply.code(403).send({
-          error:
-            "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+          error: errs.forbiddenManager,
         });
       }
       if (row.status === "blocked" && !req.user.isSuperadmin) {
-        return reply
-          .code(403)
-          .send({ error: "This club has been blocked by SuperAdmin" });
+        return reply.code(403).send({ error: errs.blockedClub });
       }
       if (row.status === "bot_removed") {
         return reply.code(403).send({
-          error:
-            "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+          error: errs.botRemoved,
         });
       }
 
       const nextIsActive = Boolean(req.body.is_active);
       if (nextIsActive) {
         const botRights = await telegramBotService.verifyBotHasClubPermissions(
-          row.chatId
+          row.chatId,
+          req.user.languageCode
         );
         if (!botRights.ok) {
           return reply.code(403).send({ error: botRights.reason });
@@ -287,8 +358,10 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(clubs.chatId, req.params.chatId))
         .limit(1);
 
+      const errs = getClubRouteErrors(req.user.languageCode);
+
       if (!row) {
-        return reply.code(404).send({ error: "Club not found" });
+        return reply.code(404).send({ error: errs.notFound });
       }
 
       const canManage =
@@ -301,20 +374,16 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!canManage) {
         return reply.code(403).send({
-          error:
-            "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+          error: errs.forbiddenManager,
         });
       }
 
       if (row.status === "blocked" && !req.user.isSuperadmin) {
-        return reply
-          .code(403)
-          .send({ error: "This club has been blocked by SuperAdmin" });
+        return reply.code(403).send({ error: errs.blockedClub });
       }
       if (row.status === "bot_removed") {
         return reply.code(403).send({
-          error:
-            "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+          error: errs.botRemoved,
         });
       }
 
@@ -328,21 +397,21 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         const slots = weeklySchedule[day].slots;
         if (slots.length > 8) {
           return reply.code(400).send({
-            error: "Не более 8 интервалов на один день недели / Max 8 intervals per day",
+            error: errs.maxIntervals,
           });
         }
         for (let i = 0; i < slots.length; i += 1) {
           const cur = slots[i];
           if (!cur || cur.from_hour >= cur.to_hour) {
             return reply.code(400).send({
-              error: "Время начала интервала должно быть меньше времени окончания",
+              error: errs.invalidIntervalBounds,
             });
           }
           if (i > 0) {
             const prev = slots[i - 1];
             if (prev && cur.from_hour < prev.to_hour) {
               return reply.code(400).send({
-                error: "Интервалы расписания в пределах одного дня не должны пересекаться",
+                error: errs.overlappingIntervals,
               });
             }
           }
@@ -355,7 +424,8 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
           : Boolean(row.isActive);
       if (nextIsActive) {
         const botRights = await telegramBotService.verifyBotHasClubPermissions(
-          row.chatId
+          row.chatId,
+          req.user.languageCode
         );
         if (!botRights.ok) {
           return reply.code(403).send({ error: botRights.reason });
@@ -450,8 +520,10 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(clubs.chatId, req.params.chatId))
         .limit(1);
 
+      const errs = getClubRouteErrors(req.user.languageCode);
+
       if (!row) {
-        return reply.code(404).send({ error: "Club not found" });
+        return reply.code(404).send({ error: errs.notFound });
       }
 
       const canManage =
@@ -463,24 +535,21 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         ));
       if (!canManage) {
         return reply.code(403).send({
-          error:
-            "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+          error: errs.forbiddenManager,
         });
       }
       if (row.status === "blocked") {
-        return reply
-          .code(403)
-          .send({ error: "Cannot publish to a blocked club" });
+        return reply.code(403).send({ error: errs.blockedClub });
       }
       if (row.status === "bot_removed") {
         return reply.code(403).send({
-          error:
-            "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+          error: errs.botRemoved,
         });
       }
 
       const botRights = await telegramBotService.verifyBotHasClubPermissions(
-        row.chatId
+        row.chatId,
+        req.user.languageCode
       );
       if (!botRights.ok) {
         return reply.code(403).send({ error: botRights.reason });
@@ -511,7 +580,9 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (!row) {
-        return reply.code(404).send({ error: "Club not found" });
+        return reply
+          .code(404)
+          .send({ error: getClubRouteErrors(req.user.languageCode).notFound });
       }
 
       await db

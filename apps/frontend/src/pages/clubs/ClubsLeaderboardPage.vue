@@ -4,12 +4,22 @@ import { useRouter } from "vue-router";
 import {
   LEGAL_PRIVACY_URL,
   LEGAL_TERMS_URL,
+  type AppLanguage,
   type ClubsCompetitionResponseDTO,
 } from "shared";
 import { useCabinetStore } from "@/entities/cabinet/model/cabinet.store";
 import { apiRequest } from "@/shared/api/httpClient";
 import { useI18n } from "@/shared/i18n/useI18n";
 import { openTelegramUrl } from "@/shared/lib/telegram";
+
+const CLUB_LANGUAGE_OPTIONS: ReadonlyArray<{
+  code: AppLanguage;
+  label: string;
+}> = [
+  { code: "en", label: "EN" },
+  { code: "de", label: "DE" },
+  { code: "ru", label: "RU" },
+];
 
 const router = useRouter();
 const cabinetStore = useCabinetStore();
@@ -18,6 +28,7 @@ const { t } = useI18n();
 const data = ref<ClubsCompetitionResponseDTO | null>(null);
 const isLoading = ref(false);
 const termsAccepted = ref(false);
+const selectedClubLanguage = ref<AppLanguage | null>(null);
 
 const maxClubTotal = computed(() => {
   if (!data.value?.clubs.length) return 1;
@@ -26,7 +37,10 @@ const maxClubTotal = computed(() => {
 
 const addBotDeepLink = computed(() => {
   const botUsername = cabinetStore.data?.bot_username || "ExtraPawnTeleBot";
-  return `https://t.me/${botUsername}?startgroup=true&admin=manage_topics+delete_messages+manage_chat`;
+  const langPayload = selectedClubLanguage.value
+    ? `lang_${selectedClubLanguage.value}`
+    : "true";
+  return `https://t.me/${botUsername}?startgroup=${langPayload}&admin=manage_topics+delete_messages+manage_chat`;
 });
 
 const isClubLimitReached = computed(
@@ -35,13 +49,41 @@ const isClubLimitReached = computed(
     cabinetStore.ownedClubsCount >= cabinetStore.maxOwnedClubs
 );
 
+const canAddBot = computed(
+  () =>
+    termsAccepted.value &&
+    selectedClubLanguage.value !== null &&
+    !isClubLimitReached.value
+);
+
 function formatScore(val: number): string {
   if (Number.isInteger(val)) return String(val);
   return val.toFixed(2).replace(/\.?0+$/, "");
 }
 
+async function syncOnboardingLanguage(language: AppLanguage) {
+  try {
+    await apiRequest("/clubs/onboarding-language", {
+      method: "POST",
+      body: JSON.stringify({ language }),
+    });
+  } catch {
+    // Non-blocking: will also retry on button click
+  }
+}
+
+function toggleClubLanguageCheckbox(code: AppLanguage) {
+  if (selectedClubLanguage.value === code) {
+    selectedClubLanguage.value = null;
+    return;
+  }
+  selectedClubLanguage.value = code;
+  void syncOnboardingLanguage(code);
+}
+
 function handleAddBotToGroup() {
-  if (!termsAccepted.value || isClubLimitReached.value) return;
+  if (!canAddBot.value || !selectedClubLanguage.value) return;
+  void syncOnboardingLanguage(selectedClubLanguage.value);
   openTelegramUrl(addBotDeepLink.value);
 }
 
@@ -110,7 +152,7 @@ onMounted(() => {
         v-if="isLoading && !data"
         class="py-8 text-center text-xs text-text-secondary"
       >
-        Загрузка рейтинга клубов...
+        {{ t("clubs_loading") }}
       </div>
 
       <div
@@ -275,6 +317,38 @@ onMounted(() => {
           </li>
         </ul>
 
+        <!-- Mandatory Group Language Selection (EN / DE / RU checkboxes, all unchecked by default) -->
+        <div
+          class="flex flex-col gap-2 rounded-lg border border-border bg-elevated p-3 text-xs"
+        >
+          <span class="font-semibold text-text-primary">
+            🌐 {{ t("clubs_select_lang_label") }}
+          </span>
+          <div class="grid grid-cols-3 gap-2">
+            <label
+              v-for="opt in CLUB_LANGUAGE_OPTIONS"
+              :key="opt.code"
+              class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-2 font-bold transition select-none"
+              :class="
+                selectedClubLanguage === opt.code
+                  ? 'border-brand bg-brand/15 text-brand'
+                  : 'border-border bg-surface text-text-secondary hover:border-brand/50'
+              "
+            >
+              <input
+                type="checkbox"
+                :checked="selectedClubLanguage === opt.code"
+                class="h-4 w-4 shrink-0 accent-brand"
+                @change="toggleClubLanguageCheckbox(opt.code)"
+              />
+              <span>{{ opt.label }}</span>
+            </label>
+          </div>
+          <span class="text-[11px] leading-snug text-text-secondary">
+            {{ t("clubs_select_lang_hint") }}
+          </span>
+        </div>
+
         <label
           class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-elevated p-3 text-xs leading-relaxed text-text-secondary"
         >
@@ -306,10 +380,10 @@ onMounted(() => {
 
         <button
           type="button"
-          :disabled="!termsAccepted"
+          :disabled="!canAddBot"
           class="w-full rounded-lg py-2.5 text-sm font-bold transition"
           :class="
-            termsAccepted
+            canAddBot
               ? 'bg-brand text-on-brand hover:bg-brand-deep cursor-pointer'
               : 'bg-elevated text-text-disabled cursor-not-allowed border border-border'
           "

@@ -4,7 +4,10 @@ import type {
   CoachLastMoveAnalysis,
   CoachTopMove,
 } from "@/shared/lib/coach/coach.types";
+import { useI18n } from "@/shared/i18n/useI18n";
 import QualityIcon from "./QualityIcon.vue";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   isAnalyzing: boolean;
@@ -212,7 +215,7 @@ function getEvalBadgeInfo(move: CoachTopMove) {
 
       <div class="flex items-center gap-1.5">
         <span v-if="isAnalyzing" class="text-[10px] font-semibold text-brand">
-          ⏳ Анализ...
+          {{ t("coach_analyzing") }}
         </span>
         <button
           type="button"
@@ -224,7 +227,7 @@ function getEvalBadgeInfo(move: CoachTopMove) {
           "
           @click="emit('toggle-visuals')"
         >
-          👁 Стрелки
+          {{ t("coach_arrows") }}
         </button>
       </div>
     </div>
@@ -283,9 +286,9 @@ function getEvalBadgeInfo(move: CoachTopMove) {
     <!-- Compact Engine Candidates (Only NAGs, Badges, Eval & Visual W/D/L Bar) -->
     <div class="flex flex-col gap-1.5 p-2">
       <div class="flex items-center justify-between px-0.5 text-[9px] font-bold tracking-widest text-text-secondary uppercase">
-        <span>Engine Candidates</span>
+        <span>{{ t("coach_candidates_title") }}</span>
         <span v-if="topMoves.length > 0" class="font-normal text-text-disabled">
-          нажмите для плана на доске
+          {{ t("coach_click_hint") }}
         </span>
       </div>
 
@@ -293,7 +296,7 @@ function getEvalBadgeInfo(move: CoachTopMove) {
         v-if="topMoves.length === 0 && !isAnalyzing && !error"
         class="px-1 py-1 text-xs text-text-secondary italic"
       >
-        Нет доступных кандидатов для этой позиции.
+        {{ t("coach_no_candidates") }}
       </div>
 
       <div

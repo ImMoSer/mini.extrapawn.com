@@ -40,7 +40,7 @@ onMounted(() => {
           </span>
         </div>
         <h1 class="mt-1 text-base font-bold text-text-primary">
-          Задача #{{ store.challenge.puzzle_id }} • {{ store.challenge.club_title }}
+          {{ t("records_puzzle_prefix") }} #{{ store.challenge.puzzle_id }} • {{ store.challenge.club_title }}
         </h1>
       </div>
 
@@ -57,7 +57,7 @@ onMounted(() => {
           )
         "
       >
-        ♟ Открыть доску
+        {{ t("records_open_board_btn") }}
       </button>
     </section>
 

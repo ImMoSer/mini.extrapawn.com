@@ -634,7 +634,7 @@ onUnmounted(() => {
           v-if="!store.isFinished"
           class="text-[11px] text-text-secondary"
         >
-          🔒 Ходы других игроков откроются после решения
+          {{ t("challenge_moves_locked") }}
         </span>
       </div>
 
