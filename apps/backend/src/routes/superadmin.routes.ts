@@ -37,7 +37,7 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
       const clubRows = await db
         .select()
         .from(clubs)
-        .orderBy(desc(clubs.isDefault), desc(clubs.createdAt));
+        .orderBy(desc(clubs.createdAt));
 
       const clubDtos = await Promise.all(
         clubRows.map((c) =>
@@ -142,11 +142,6 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
       if (!row) {
         return reply.code(404).send({ error: "Club not found" });
       }
-      if (row.isDefault && blocked) {
-        return reply
-          .code(400)
-          .send({ error: "Default club cannot be blocked" });
-      }
 
       const nextStatus: ClubStatus = blocked
         ? "blocked"
@@ -205,16 +200,14 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         .delete(clubChallenges)
         .where(eq(clubChallenges.chatId, chatId));
 
-      // If blacklisted or default club: keep the club row so blacklist / official club remains intact
-      if (row.status === "blocked" || row.isDefault) {
+      // If blacklisted: keep the club row so blacklist remains intact
+      if (row.status === "blocked") {
         await telegramBotService.clearAutoPause(chatId);
-        if (row.status === "blocked") {
-          await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
-        }
+        await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
         const [updated] = await db
           .update(clubs)
           .set({
-            memberCount: row.status === "blocked" ? 0 : row.memberCount,
+            memberCount: 0,
             lastPublishedAt: null,
             lastLeaderboardAt: null,
             updatedAt: new Date(),
@@ -233,7 +226,7 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // If not blacklisted and not default: leave Telegram chat and delete everything about the club
+      // If not blacklisted: leave Telegram chat and delete everything about the club
       await telegramBotService.leaveClubChat(chatId);
       await db.delete(clubs).where(eq(clubs.chatId, chatId));
 

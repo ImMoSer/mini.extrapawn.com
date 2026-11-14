@@ -3,10 +3,6 @@
 // ============================================================================
 
 export const SUPERADMIN_TELEGRAM_ID = "5106981885";
-export const DEFAULT_CLUB_CHAT_ID = "-1002255301933";
-export const DEFAULT_CLUB_THREAD_ID = 293770;
-export const DEFAULT_CLUB_TITLE = "EXTRAPAWNCLUB";
-export const DEFAULT_CLUB_INVITE_URL = "https://t.me/EXTRAPAWNCLUB/1";
 export const MAX_OWNED_CLUBS_PER_USER = 2;
 
 export const EXTRAPAWN_WEB_URL = "https://extrapawn.com";
@@ -20,16 +16,6 @@ export const GITHUB_MAIN_REPO_URL = "https://github.com/ImMoSer/extrapawn.com";
 export const LEELA_NETS_REPO_URL = "https://github.com/CallOn84/LeelaNets";
 
 export type AppLanguage = "ru" | "en" | "de";
-
-export const OFFICIAL_CLUB_INVITE_URLS: Record<AppLanguage, string> = {
-  ru: "https://t.me/EXTRAPAWNCLUB/1",
-  en: "https://t.me/EXTRAPAWNCLUB/293806",
-  de: "https://t.me/EXTRAPAWNCLUB/293807",
-};
-
-export function getOfficialClubInviteUrl(lang: AppLanguage): string {
-  return OFFICIAL_CLUB_INVITE_URLS[lang] ?? OFFICIAL_CLUB_INVITE_URLS.ru;
-}
 
 export type DayOfWeekKey =
   | "mon"
@@ -622,7 +608,6 @@ export interface ClubSummaryDTO {
   is_active: boolean;
   auto_paused: boolean;
   blocked_reason: string | null;
-  is_default: boolean;
   is_admin: boolean;
   weekly_schedule: WeeklyScheduleConfig;
   schedule_times: string[];
@@ -650,7 +635,6 @@ export interface UserCabinetDTO {
   my_clubs: ClubSummaryDTO[];
   owned_clubs_count: number;
   max_owned_clubs: number;
-  default_chat_id: string;
   bot_username: string;
 }
 
@@ -972,7 +956,6 @@ export interface ClubCompetitionRowDTO {
   chat_id: string;
   title: string;
   username: string | null;
-  is_default: boolean;
   is_member: boolean;
   is_admin: boolean;
   is_active: boolean;

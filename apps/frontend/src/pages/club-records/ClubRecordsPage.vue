@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  DEFAULT_CLUB_CHAT_ID,
   type ClubChallengeItemDTO,
   type ClubRecordsResponseDTO,
 } from "shared";
@@ -17,9 +16,7 @@ const data = ref<ClubRecordsResponseDTO | null>(null);
 const isLoading = ref(false);
 const challengesTab = ref<"active" | "completed">("active");
 
-const chatId = computed(() =>
-  route.params.chatId ? String(route.params.chatId) : DEFAULT_CLUB_CHAT_ID
-);
+const chatId = computed(() => String(route.params.chatId || ""));
 
 const activeChallenges = computed<ClubChallengeItemDTO[]>(() =>
   (data.value?.recent_challenges ?? []).filter(

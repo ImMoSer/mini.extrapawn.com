@@ -3,7 +3,6 @@ import type { Dests, Key } from "@lichess-org/chessground/types";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  DEFAULT_CLUB_CHAT_ID,
   type ChallengeDiscipline,
   type ChallengeParticipantDTO,
 } from "shared";
@@ -31,9 +30,7 @@ const routeParams = computed(() => {
     "tactics") as ChallengeDiscipline;
   const puzzleId = String(route.params.puzzleId || "");
   const rawEdition = route.params.edition ? String(route.params.edition) : "1";
-  const rawChatId = route.params.chatId
-    ? String(route.params.chatId)
-    : DEFAULT_CLUB_CHAT_ID;
+  const rawChatId = String(route.params.chatId || "");
   const targetUserId = route.params.userId
     ? String(route.params.userId)
     : undefined;

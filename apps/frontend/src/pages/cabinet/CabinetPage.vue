@@ -3,17 +3,15 @@ import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   ALL_CHALLENGE_DISCIPLINES,
-  getOfficialClubInviteUrl,
   type ChallengeDiscipline,
   type UserChallengeHistoryItemDTO,
 } from "shared";
 import { useCabinetStore } from "@/entities/cabinet/model/cabinet.store";
 import { useI18n } from "@/shared/i18n/useI18n";
-import { openTelegramUrl } from "@/shared/lib/telegram";
 
 const router = useRouter();
 const cabinetStore = useCabinetStore();
-const { lang, t, disciplineTitle, difficultyTitle, focusTitle } = useI18n();
+const { t, disciplineTitle, difficultyTitle, focusTitle } = useI18n();
 
 const activeTab = ref<"stats" | "history">("stats");
 
@@ -90,14 +88,6 @@ onMounted(() => {
           </p>
         </div>
       </div>
-
-      <button
-        type="button"
-        class="rounded-lg border border-brand/40 bg-elevated px-3 py-2 text-xs font-bold text-brand transition hover:border-brand"
-        @click="openTelegramUrl(getOfficialClubInviteUrl(lang))"
-      >
-        💬 {{ t("cabinet_join_default_club") }}
-      </button>
     </section>
 
     <!-- Internal Switcher: 📊 Статистика | 📜 История -->

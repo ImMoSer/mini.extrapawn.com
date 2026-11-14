@@ -74,7 +74,7 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
     const allClubRows = await db
       .select()
       .from(clubs)
-      .orderBy(desc(clubs.isDefault), desc(clubs.memberCount));
+      .orderBy(desc(clubs.memberCount));
 
     const clubDtos = await Promise.all(
       allClubRows.map((c) =>
@@ -86,12 +86,10 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
       (c) => c.status !== "bot_removed" && c.status !== "blocked"
     );
     const myClubs = visibleClubs.filter((c) => c.is_admin);
-    const ownedClubsCount = visibleClubs.filter(
-      (c) =>
-        !c.is_default &&
-        (viewer.isSuperadmin
-          ? c.owner_telegram_id === viewer.telegramId
-          : c.is_admin)
+    const ownedClubsCount = visibleClubs.filter((c) =>
+      viewer.isSuperadmin
+        ? c.owner_telegram_id === viewer.telegramId
+        : c.is_admin
     ).length;
 
     const clubTitleByChatId = new Map<string, string>(
@@ -161,11 +159,7 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
 
         return {
           chat_id: att.chatId,
-          club_title:
-            clubTitleByChatId.get(att.chatId) ??
-            (att.chatId === env.DEFAULT_CLUB_CHAT_ID
-              ? env.DEFAULT_CLUB_TITLE
-              : `Club ${att.chatId}`),
+          club_title: clubTitleByChatId.get(att.chatId) ?? `Club ${att.chatId}`,
           discipline: att.discipline as ChallengeDiscipline,
           puzzle_id: att.puzzleId,
           edition: att.edition,
@@ -215,7 +209,6 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
       my_clubs: myClubs,
       owned_clubs_count: ownedClubsCount,
       max_owned_clubs: MAX_OWNED_CLUBS_PER_USER,
-      default_chat_id: env.DEFAULT_CLUB_CHAT_ID,
       bot_username: env.BOT_USERNAME,
     };
 

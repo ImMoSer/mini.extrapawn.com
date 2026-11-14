@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
-  getOfficialClubInviteUrl,
   LEGAL_PRIVACY_URL,
   LEGAL_TERMS_URL,
   type ClubsCompetitionResponseDTO,
@@ -14,7 +13,7 @@ import { openTelegramUrl } from "@/shared/lib/telegram";
 
 const router = useRouter();
 const cabinetStore = useCabinetStore();
-const { lang, t } = useI18n();
+const { t } = useI18n();
 
 const data = ref<ClubsCompetitionResponseDTO | null>(null);
 const isLoading = ref(false);
@@ -148,20 +147,6 @@ onMounted(() => {
                 <span class="text-sm font-bold text-text-primary">
                   {{ club.title }}
                 </span>
-                <span
-                  v-if="club.is_default"
-                  class="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand uppercase"
-                >
-                  OFFICIAL
-                </span>
-                <button
-                  v-if="club.is_default"
-                  type="button"
-                  class="inline-flex min-h-6 items-center gap-1 rounded border border-brand/50 bg-brand/15 px-2 py-0.5 text-[10px] font-bold text-brand transition hover:bg-brand hover:text-on-brand"
-                  @click.stop="openTelegramUrl(getOfficialClubInviteUrl(lang))"
-                >
-                  {{ t("clubs_join_official_btn") }}
-                </button>
                 <button
                   v-if="club.is_admin"
                   type="button"
@@ -177,7 +162,7 @@ onMounted(() => {
                   <span class="text-xs leading-none">⚙️</span>
                 </button>
                 <span
-                  v-else-if="club.is_member && !club.is_default"
+                  v-else-if="club.is_member"
                   class="rounded bg-info/15 px-1.5 py-0.5 text-[10px] font-bold text-info uppercase"
                 >
                   MEMBER

@@ -63,7 +63,6 @@ export const clubs = teleAppSchema.table("clubs", {
   autoPauseMessageId: integer("auto_pause_message_id"),
   weeklySchedule: jsonb("weekly_schedule").$type<WeeklyScheduleConfig>(),
   blockedReason: text("blocked_reason"),
-  isDefault: boolean("is_default").notNull().default(false),
   termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

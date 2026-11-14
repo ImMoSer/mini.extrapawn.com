@@ -12,7 +12,6 @@ import {
   type UpdateClubSettingsRequest,
 } from "shared";
 import { telegramBotService } from "../bot/telegramBot.service.js";
-import { env } from "../config/env.js";
 import { db } from "../db/index.js";
 import {
   challengeAttempts,
@@ -32,28 +31,13 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
       const sinceDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
       const viewerId = req.user.telegramId;
 
-      // Ensure official EXTRAPAWNCLUB row always exists so /clubs is never empty
-      await db
-        .insert(clubs)
-        .values({
-          chatId: env.DEFAULT_CLUB_CHAT_ID,
-          title: env.DEFAULT_CLUB_TITLE,
-          username: "EXTRAPAWNCLUB",
-          ownerTelegramId: env.SUPERADMIN_TELEGRAM_ID,
-          topicThreadId: env.DEFAULT_CLUB_THREAD_ID,
-          isDefault: true,
-          isActive: true,
-          status: "active",
-        })
-        .onConflictDoNothing();
-
       const clubRows = await db
         .select()
         .from(clubs)
         .where(
           and(ne(clubs.status, "blocked"), ne(clubs.status, "bot_removed"))
         )
-        .orderBy(desc(clubs.isDefault), desc(clubs.memberCount));
+        .orderBy(desc(clubs.memberCount));
 
       const [recentSolved, myAttempts, myAdminRows] = await Promise.all([
         db
@@ -127,8 +111,7 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
           req.user.isSuperadmin ||
           c.ownerTelegramId === viewerId ||
           adminChatIds.has(c.chatId);
-        const isMember =
-          c.isDefault || isAdmin || participatedChatIds.has(c.chatId);
+        const isMember = isAdmin || participatedChatIds.has(c.chatId);
         const isActive = Boolean(c.isActive) && c.status === "active";
 
         return {
@@ -136,7 +119,6 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
           chat_id: c.chatId,
           title: c.title,
           username: c.username ?? null,
-          is_default: c.isDefault,
           is_member: isMember,
           is_admin: isAdmin,
           is_active: isActive,
@@ -159,9 +141,6 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (b.solved_count_30d !== a.solved_count_30d) {
           return b.solved_count_30d - a.solved_count_30d;
-        }
-        if (a.is_default !== b.is_default) {
-          return a.is_default ? -1 : 1;
         }
         return b.member_count - a.member_count;
       });
@@ -477,11 +456,6 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!row) {
         return reply.code(404).send({ error: "Club not found" });
-      }
-      if (row.isDefault) {
-        return reply
-          .code(400)
-          .send({ error: "Default official club cannot be deleted" });
       }
 
       const dto = await mapClubRowToSummaryDTO(

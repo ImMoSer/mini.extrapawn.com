@@ -48,7 +48,6 @@ export async function mapClubRowToSummaryDTO(
     is_active: isActive,
     auto_paused: Boolean(row.autoPaused),
     blocked_reason: row.blockedReason,
-    is_default: row.isDefault,
     is_admin: isAdmin,
     weekly_schedule: normalizeWeeklySchedule(row.weeklySchedule),
     schedule_times: row.scheduleTimes || ["09:00", "15:00", "20:00"],

@@ -1,13 +1,7 @@
 import * as dotenv from "dotenv";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import {
-  DEFAULT_CLUB_CHAT_ID,
-  DEFAULT_CLUB_INVITE_URL,
-  DEFAULT_CLUB_THREAD_ID,
-  DEFAULT_CLUB_TITLE,
-  SUPERADMIN_TELEGRAM_ID,
-} from "shared";
+import { SUPERADMIN_TELEGRAM_ID } from "shared";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,15 +38,6 @@ export const env = {
   COACH_ENGINE_URL: requireEnv("COACH_ENGINE_URL", "http://localhost:5004"),
   SUPERADMIN_TELEGRAM_ID:
     process.env.SUPERADMIN_TELEGRAM_ID?.trim() || SUPERADMIN_TELEGRAM_ID,
-  DEFAULT_CLUB_CHAT_ID:
-    process.env.DEFAULT_CLUB_CHAT_ID?.trim() || DEFAULT_CLUB_CHAT_ID,
-  DEFAULT_CLUB_THREAD_ID: Number(
-    process.env.DEFAULT_CLUB_THREAD_ID || DEFAULT_CLUB_THREAD_ID
-  ),
-  DEFAULT_CLUB_TITLE:
-    process.env.DEFAULT_CLUB_TITLE?.trim() || DEFAULT_CLUB_TITLE,
-  DEFAULT_CLUB_INVITE_URL:
-    process.env.DEFAULT_CLUB_INVITE_URL?.trim() || DEFAULT_CLUB_INVITE_URL,
   ALLOW_MOCK_AUTH:
     process.env.ALLOW_MOCK_AUTH === "true" ||
     process.env.NODE_ENV !== "production",

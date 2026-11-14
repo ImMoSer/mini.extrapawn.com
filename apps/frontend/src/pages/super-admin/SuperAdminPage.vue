@@ -388,7 +388,7 @@ onMounted(() => {
               </button>
 
               <button
-                v-if="!club.is_default && club.status !== 'blocked'"
+                v-if="club.status !== 'blocked'"
                 type="button"
                 class="rounded bg-danger px-2.5 py-1 text-xs font-bold text-on-brand transition hover:opacity-90"
                 @click="toggleClubBlacklist(club, true)"
@@ -397,7 +397,7 @@ onMounted(() => {
               </button>
 
               <button
-                v-if="!club.is_default && club.status === 'blocked'"
+                v-if="club.status === 'blocked'"
                 type="button"
                 class="rounded bg-success px-2.5 py-1 text-xs font-bold text-on-brand transition hover:opacity-90"
                 @click="toggleClubBlacklist(club, false)"

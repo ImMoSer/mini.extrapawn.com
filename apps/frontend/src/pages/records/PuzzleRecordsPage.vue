@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import {
-  DEFAULT_CLUB_CHAT_ID,
-  type ChallengeDiscipline,
-} from "shared";
+import { type ChallengeDiscipline } from "shared";
 import { useChallengeSessionStore } from "@/features/challenge-play/model/challengeSession.store";
 import { useI18n } from "@/shared/i18n/useI18n";
 
@@ -18,9 +15,7 @@ const routeParams = computed(() => {
     "tactics") as ChallengeDiscipline;
   const puzzleId = String(route.params.puzzleId || "");
   const edition = route.params.edition ? String(route.params.edition) : "1";
-  const chatId = route.params.chatId
-    ? String(route.params.chatId)
-    : DEFAULT_CLUB_CHAT_ID;
+  const chatId = String(route.params.chatId || "");
   return { discipline, puzzleId, edition, chatId };
 });
 

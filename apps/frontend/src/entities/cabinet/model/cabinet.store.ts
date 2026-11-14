@@ -1,7 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import {
-  DEFAULT_CLUB_CHAT_ID,
   MAX_OWNED_CLUBS_PER_USER,
   type AppLanguage,
   type ClubSummaryDTO,
@@ -16,7 +15,7 @@ export const useCabinetStore = defineStore("cabinet", () => {
   const data = ref<UserCabinetDTO | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
-  const selectedChatId = ref<string>(DEFAULT_CLUB_CHAT_ID);
+  const selectedChatId = ref<string>("");
   const localTermsAccepted = ref<boolean>(
     typeof window !== "undefined" &&
       Boolean(window.localStorage.getItem(TERMS_LOCAL_STORAGE_KEY))
@@ -71,9 +70,9 @@ export const useCabinetStore = defineStore("cabinet", () => {
       }
       if (
         !res.clubs.some((c) => c.chat_id === selectedChatId.value) &&
-        res.default_chat_id
+        res.clubs[0]
       ) {
-        selectedChatId.value = res.default_chat_id;
+        selectedChatId.value = res.clubs[0].chat_id;
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);

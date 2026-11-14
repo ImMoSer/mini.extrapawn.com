@@ -8,7 +8,6 @@ import {
   ALL_SCHEDULE_INTERVALS,
   CLUB_TIMEZONE_OPTIONS,
   createDefaultWeeklySchedule,
-  DEFAULT_CLUB_CHAT_ID,
   getClubTimezoneOptionLabel,
   getWarmupTileLabel,
   getWarmupTilesForDiscipline,
@@ -31,9 +30,7 @@ const router = useRouter();
 const cabinetStore = useCabinetStore();
 const { lang, t, disciplineTitle, difficultyTitle } = useI18n();
 
-const chatId = computed(() =>
-  route.params.chatId ? String(route.params.chatId) : DEFAULT_CLUB_CHAT_ID
-);
+const chatId = computed(() => String(route.params.chatId || ""));
 
 const FROM_HOURS = [
   6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
@@ -365,7 +362,7 @@ async function publishChallengeNow() {
 }
 
 async function disconnectAndPurgeClub() {
-  if (!club.value || club.value.is_default || isDisconnecting.value) return;
+  if (!club.value || isDisconnecting.value) return;
   if (!window.confirm(t("settings_disconnect_confirm"))) return;
 
   isDisconnecting.value = true;
@@ -864,7 +861,7 @@ onMounted(() => {
 
     <!-- Moderator Disconnect & Purge All Club Data -->
     <section
-      v-if="club && !club.is_default"
+      v-if="club"
       class="glass flex flex-col gap-2.5 border border-danger/30 p-4"
     >
       <div class="text-xs font-bold tracking-wider text-danger uppercase">

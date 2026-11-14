@@ -1047,9 +1047,7 @@ export const telegramBotService = {
     }
 
     const fromId = String(update.from.id);
-    const isSuperadminOwner =
-      fromId === env.SUPERADMIN_TELEGRAM_ID ||
-      chatId === env.DEFAULT_CLUB_CHAT_ID;
+    const isSuperadminOwner = fromId === env.SUPERADMIN_TELEGRAM_ID;
 
     // 1. Must be a supergroup
     if (update.chat.type !== "supergroup") {
@@ -1060,7 +1058,7 @@ export const telegramBotService = {
       return;
     }
 
-    // 2. Check member count >= 30 (unless SuperAdmin / Default Club)
+    // 2. Check member count >= 30 (unless SuperAdmin)
     const countRes = await callTelegramJson<number>("getChatMemberCount", {
       chat_id: chatId,
     });
@@ -1103,7 +1101,6 @@ export const telegramBotService = {
         .where(
           and(
             eq(clubs.ownerTelegramId, fromId),
-            eq(clubs.isDefault, false),
             ne(clubs.status, "bot_removed"),
             ne(clubs.chatId, chatId)
           )
@@ -1117,11 +1114,8 @@ export const telegramBotService = {
       }
     }
 
-    // 4. Create Forum Topic "ExtraPawnTeleBot" (or reuse existing / default thread)
-    let topicThreadId =
-      chatId === env.DEFAULT_CLUB_CHAT_ID
-        ? env.DEFAULT_CLUB_THREAD_ID
-        : existingClub?.topicThreadId || 0;
+    // 4. Create Forum Topic "ExtraPawnTeleBot" (or reuse existing thread)
+    let topicThreadId = existingClub?.topicThreadId || 0;
 
     if (!topicThreadId) {
       const topicRes = await callTelegramJson<{ message_thread_id: number }>(
@@ -1181,7 +1175,6 @@ export const telegramBotService = {
         autoPauseChallengeId: null,
         autoPauseMessageId: null,
         weeklySchedule: createDefaultWeeklySchedule(),
-        isDefault: chatId === env.DEFAULT_CLUB_CHAT_ID,
       })
       .onConflictDoUpdate({
         target: clubs.chatId,
@@ -1513,7 +1506,7 @@ async function runScheduledClubsTick(): Promise<void> {
     const now = new Date();
     for (const club of activeClubs) {
       // Recover missed initial challenge if a connected club has never published yet
-      if (!club.isDefault && !club.lastPublishedAt && club.topicThreadId > 0) {
+      if (!club.lastPublishedAt && club.topicThreadId > 0) {
         try {
           await telegramBotService.publishChallengeToClub(club.chatId);
         } catch (err) {

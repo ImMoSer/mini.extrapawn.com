@@ -53,14 +53,9 @@ async function ensureClubExists(chatId: string) {
     .insert(clubs)
     .values({
       chatId,
-      title:
-        chatId === env.DEFAULT_CLUB_CHAT_ID
-          ? env.DEFAULT_CLUB_TITLE
-          : `Club ${chatId}`,
+      title: `Club ${chatId}`,
       ownerTelegramId: env.SUPERADMIN_TELEGRAM_ID,
-      topicThreadId:
-        chatId === env.DEFAULT_CLUB_CHAT_ID ? env.DEFAULT_CLUB_THREAD_ID : 0,
-      isDefault: chatId === env.DEFAULT_CLUB_CHAT_ID,
+      topicThreadId: 0,
       status: "active",
     })
     .onConflictDoNothing()
@@ -421,8 +416,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         (c) =>
           c.status !== "blocked" &&
           c.status !== "bot_removed" &&
-          (c.isDefault ||
-            req.user.isSuperadmin ||
+          (req.user.isSuperadmin ||
             c.ownerTelegramId === viewerId ||
             adminChatIds.has(c.chatId) ||
             participatedChatIds.has(c.chatId))
