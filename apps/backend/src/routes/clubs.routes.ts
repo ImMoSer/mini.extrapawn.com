@@ -22,12 +22,12 @@ import {
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
 
 export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
-  // Inter-Club Monthly Competition Leaderboard (/api/clubs/leaderboard)
+  // Inter-Club 7-Day Competition Leaderboard (/api/clubs/leaderboard)
   fastify.get(
     "/clubs/leaderboard",
     { preHandler: [fastify.authenticate] },
     async (req): Promise<ClubsCompetitionResponseDTO> => {
-      const periodDays = 30;
+      const periodDays = 7;
       const sinceDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
       const viewerId = req.user.telegramId;
 
@@ -124,8 +124,8 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
           is_active: isActive,
           auto_paused: Boolean(c.autoPaused),
           member_count: c.memberCount,
-          active_players_30d: acc ? acc.players.size : 0,
-          solved_count_30d: acc?.solvedCount ?? 0,
+          active_players_7d: acc ? acc.players.size : 0,
+          solved_count_7d: acc?.solvedCount ?? 0,
           tactics_points: tacticsPts,
           theoretical_points: theoreticalPts,
           practical_points: practicalPts,
@@ -139,8 +139,8 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         if (b.total_points !== a.total_points) {
           return b.total_points - a.total_points;
         }
-        if (b.solved_count_30d !== a.solved_count_30d) {
-          return b.solved_count_30d - a.solved_count_30d;
+        if (b.solved_count_7d !== a.solved_count_7d) {
+          return b.solved_count_7d - a.solved_count_7d;
         }
         return b.member_count - a.member_count;
       });

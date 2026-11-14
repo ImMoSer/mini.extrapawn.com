@@ -1,6 +1,6 @@
 FROM node:24-alpine AS builder
 
-RUN npm install -g pnpm@11.14.0
+RUN npm install -g pnpm@12.18.0
 
 WORKDIR /app
 

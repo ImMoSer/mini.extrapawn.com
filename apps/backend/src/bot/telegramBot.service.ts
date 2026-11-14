@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, desc, eq, isNotNull, lt, ne, or } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt, ne, or } from "drizzle-orm";
 import {
   ALL_DAYS_OF_WEEK,
   calculateAttemptPoints,
@@ -724,6 +724,7 @@ export const telegramBotService = {
 
     if (!club || club.status !== "active") return false;
 
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const rows = await db
       .select({
         attempt: challengeAttempts,
@@ -731,7 +732,12 @@ export const telegramBotService = {
       })
       .from(challengeAttempts)
       .leftJoin(users, eq(challengeAttempts.telegramId, users.telegramId))
-      .where(eq(challengeAttempts.chatId, chatId));
+      .where(
+        and(
+          eq(challengeAttempts.chatId, chatId),
+          gte(challengeAttempts.updatedAt, sevenDaysAgo)
+        )
+      );
 
     const statsByUser = new Map<
       string,
@@ -1473,15 +1479,15 @@ async function notifyAutoPauseReplyOnce(
   return res.result?.message_id ?? null;
 }
 
-let lastThirtyDayCleanupAt = 0;
+let lastSevenDayCleanupAt = 0;
 
-async function purgeExpiredThirtyDayRecords(): Promise<void> {
+async function purgeExpiredSevenDayRecords(): Promise<void> {
   const nowMs = Date.now();
   const oneHourMs = 60 * 60 * 1000;
-  if (nowMs - lastThirtyDayCleanupAt < oneHourMs) return;
-  lastThirtyDayCleanupAt = nowMs;
+  if (nowMs - lastSevenDayCleanupAt < oneHourMs) return;
+  lastSevenDayCleanupAt = nowMs;
 
-  const cutoffDate = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(nowMs - 7 * 24 * 60 * 60 * 1000);
   try {
     await db
       .delete(challengeAttempts)
@@ -1490,12 +1496,12 @@ async function purgeExpiredThirtyDayRecords(): Promise<void> {
       .delete(clubChallenges)
       .where(lt(clubChallenges.publishedAt, cutoffDate));
   } catch (err) {
-    console.error("[TelegramBot] 30-day retention cleanup error:", err);
+    console.error("[TelegramBot] 7-day retention cleanup error:", err);
   }
 }
 
 async function runScheduledClubsTick(): Promise<void> {
-  await purgeExpiredThirtyDayRecords();
+  await purgeExpiredSevenDayRecords();
   if (!env.TELEGRAM_BOT_TOKEN) return;
   try {
     const activeClubs = await db

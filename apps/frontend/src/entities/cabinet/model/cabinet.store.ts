@@ -30,7 +30,6 @@ export const useCabinetStore = defineStore("cabinet", () => {
     }
     return localTermsAccepted.value;
   });
-  const history = computed(() => data.value?.history ?? []);
   const clubs = computed(() => data.value?.clubs ?? []);
   const myClubs = computed(
     () =>
@@ -151,7 +150,6 @@ export const useCabinetStore = defineStore("cabinet", () => {
     currentUser,
     isSuperadmin,
     isTermsAccepted,
-    history,
     clubs,
     myClubs,
     ownedClubsCount,

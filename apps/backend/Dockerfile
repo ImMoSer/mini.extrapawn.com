@@ -1,6 +1,6 @@
 FROM node:24-alpine AS base
 
-RUN apk add --no-cache font-dejavu && npm install -g pnpm@11.14.0
+RUN apk add --no-cache font-dejavu && npm install -g pnpm@12.18.0
 
 WORKDIR /app
 

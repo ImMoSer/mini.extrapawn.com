@@ -425,6 +425,39 @@ export function normalizeWeeklySchedule(raw: unknown): WeeklyScheduleConfig {
   return result;
 }
 
+export function getDayKeyInTimezone(
+  date: Date,
+  timezone?: string | null
+): string {
+  const safeTz = timezone?.trim() || "Europe/Berlin";
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: safeTz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Berlin",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  }
+}
+
+export function isSameDayInTimezone(
+  dateA: Date,
+  dateB: Date,
+  timezone?: string | null
+): boolean {
+  return (
+    getDayKeyInTimezone(dateA, timezone) ===
+    getDayKeyInTimezone(dateB, timezone)
+  );
+}
+
 export interface ClubTimezoneOption {
   value: string;
   labelRu: string;
@@ -621,16 +654,9 @@ export interface ClubSummaryDTO {
   published_challenges_count: number;
 }
 
-export interface UserChallengeHistoryItemDTO extends ClubChallengeItemDTO {
-  chat_id: string;
-  club_title: string;
-  completed_at: string;
-}
-
 export interface UserCabinetDTO {
   user: TeleUserDTO;
   stats: Record<ChallengeDiscipline, DisciplineAttemptStatsDTO>;
-  history: UserChallengeHistoryItemDTO[];
   clubs: ClubSummaryDTO[];
   my_clubs: ClubSummaryDTO[];
   owned_clubs_count: number;
@@ -961,8 +987,8 @@ export interface ClubCompetitionRowDTO {
   is_active: boolean;
   auto_paused: boolean;
   member_count: number;
-  active_players_30d: number;
-  solved_count_30d: number;
+  active_players_7d: number;
+  solved_count_7d: number;
   tactics_points: number;
   theoretical_points: number;
   practical_points: number;

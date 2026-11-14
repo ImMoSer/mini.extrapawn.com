@@ -73,7 +73,7 @@ onMounted(() => {
           🏆 {{ t("clubs_title") }}
         </span>
         <span class="rounded bg-elevated px-2 py-0.5 text-[11px] font-semibold text-text-secondary">
-          30d Rolling
+          7d
         </span>
       </div>
       <p class="text-xs text-text-secondary">
@@ -176,7 +176,10 @@ onMounted(() => {
               </div>
               <div class="text-[11px] text-text-secondary">
                 <span v-if="club.username">@{{ club.username }} • </span>
-                <span>{{ club.active_players_30d }} игроков • {{ club.solved_count_30d }} побед</span>
+                <span>
+                  {{ club.active_players_7d }} {{ t("clubs_players_word") }} •
+                  {{ club.solved_count_7d }} {{ t("clubs_wins_word") }}
+                </span>
               </div>
             </div>
           </div>

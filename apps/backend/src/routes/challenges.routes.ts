@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { FastifyPluginAsync } from "fastify";
 import {
   calculateAttemptPoints,
+  isSameDayInTimezone,
   roundPoints,
   type BotEngineId,
   type ChallengeAttemptStatus,
@@ -75,9 +76,197 @@ async function ensureClubExists(chatId: string) {
   return refetched;
 }
 
+async function isChallengeExpiredForViewer(params: {
+  chatId: string;
+  discipline: ChallengeDiscipline;
+  puzzleId: string;
+  edition: string;
+  viewerTelegramId: string;
+  clubTimezone: string;
+}): Promise<boolean> {
+  const [challengeRow] = await db
+    .select({ publishedAt: clubChallenges.publishedAt })
+    .from(clubChallenges)
+    .where(
+      and(
+        eq(clubChallenges.chatId, params.chatId),
+        eq(clubChallenges.discipline, params.discipline),
+        eq(clubChallenges.puzzleId, params.puzzleId),
+        eq(clubChallenges.edition, params.edition)
+      )
+    )
+    .limit(1);
+
+  if (!challengeRow) {
+    return false;
+  }
+
+  if (isSameDayInTimezone(challengeRow.publishedAt, new Date(), params.clubTimezone)) {
+    return false;
+  }
+
+  const [viewerAttempt] = await db
+    .select({ status: challengeAttempts.status })
+    .from(challengeAttempts)
+    .where(
+      and(
+        eq(challengeAttempts.chatId, params.chatId),
+        eq(challengeAttempts.discipline, params.discipline),
+        eq(challengeAttempts.puzzleId, params.puzzleId),
+        eq(challengeAttempts.edition, params.edition),
+        eq(challengeAttempts.telegramId, params.viewerTelegramId)
+      )
+    )
+    .limit(1);
+
+  return (
+    viewerAttempt?.status !== "solved" &&
+    viewerAttempt?.status !== "surrendered"
+  );
+}
+
+/**
+ * Single source of truth for today's unsolved challenges across all clubs
+ * the viewer participates in (used by both /challenges/go-feed and Next Challenge CTA).
+ */
+async function getViewerTodayActiveChallenges(params: {
+  viewerTelegramId: string;
+  isSuperadmin: boolean;
+}): Promise<GoActiveChallengeItemDTO[]> {
+  const [allClubs, myAdminRows, myParticipatedRows] = await Promise.all([
+    db.select().from(clubs),
+    db
+      .select({ chatId: clubAdmins.chatId })
+      .from(clubAdmins)
+      .where(eq(clubAdmins.telegramId, params.viewerTelegramId)),
+    db
+      .select({ chatId: challengeAttempts.chatId })
+      .from(challengeAttempts)
+      .where(eq(challengeAttempts.telegramId, params.viewerTelegramId)),
+  ]);
+
+  const adminChatIds = new Set(myAdminRows.map((r) => r.chatId));
+  const participatedChatIds = new Set(
+    myParticipatedRows.map((r) => r.chatId)
+  );
+
+  const memberClubs = allClubs.filter(
+    (c) =>
+      c.status !== "blocked" &&
+      c.status !== "bot_removed" &&
+      (params.isSuperadmin ||
+        c.ownerTelegramId === params.viewerTelegramId ||
+        adminChatIds.has(c.chatId) ||
+        participatedChatIds.has(c.chatId))
+  );
+
+  if (memberClubs.length === 0) {
+    return [];
+  }
+
+  const clubByChatId = new Map(memberClubs.map((c) => [c.chatId, c]));
+  const memberChatIds = memberClubs.map((c) => c.chatId);
+
+  const [recentChallenges, attemptRows] = await Promise.all([
+    db
+      .select()
+      .from(clubChallenges)
+      .where(inArray(clubChallenges.chatId, memberChatIds))
+      .orderBy(desc(clubChallenges.publishedAt))
+      .limit(100),
+    db
+      .select()
+      .from(challengeAttempts)
+      .where(inArray(challengeAttempts.chatId, memberChatIds)),
+  ]);
+
+  interface GoStatsBucket {
+    solvedCount: number;
+    bestTimeMs: number | null;
+    myStatus: ChallengeAttemptStatus | null;
+    mySolved: boolean;
+    myPoints: number;
+    myAttempts: number;
+  }
+
+  const statsByKey = new Map<string, GoStatsBucket>();
+  for (const att of attemptRows) {
+    const key = `${att.chatId}:${att.discipline}:${att.puzzleId}:${att.edition}`;
+    let bucket = statsByKey.get(key);
+    if (!bucket) {
+      bucket = {
+        solvedCount: 0,
+        bestTimeMs: null,
+        myStatus: null,
+        mySolved: false,
+        myPoints: 0,
+        myAttempts: 0,
+      };
+      statsByKey.set(key, bucket);
+    }
+
+    if (att.solved) {
+      bucket.solvedCount += 1;
+      if (att.solvedTimeMs !== null && att.solvedTimeMs !== undefined) {
+        const ms = Number(att.solvedTimeMs);
+        if (bucket.bestTimeMs === null || ms < bucket.bestTimeMs) {
+          bucket.bestTimeMs = ms;
+        }
+      }
+    }
+
+    if (att.telegramId === params.viewerTelegramId) {
+      bucket.myStatus = (att.status || "in_progress") as ChallengeAttemptStatus;
+      bucket.mySolved = att.solved;
+      bucket.myPoints = roundPoints(
+        calculateAttemptPoints(att.solved, att.attempts)
+      );
+      bucket.myAttempts = att.attempts;
+    }
+  }
+
+  const now = new Date();
+  const activeItems: GoActiveChallengeItemDTO[] = [];
+
+  for (const c of recentChallenges) {
+    const club = clubByChatId.get(c.chatId);
+    if (!club || !isSameDayInTimezone(c.publishedAt, now, club.timezone)) {
+      continue;
+    }
+
+    const key = `${c.chatId}:${c.discipline}:${c.puzzleId}:${c.edition}`;
+    const b = statsByKey.get(key);
+    const myStatus = b?.myStatus ?? null;
+    if (myStatus === "solved" || myStatus === "surrendered") {
+      continue;
+    }
+
+    activeItems.push({
+      chat_id: c.chatId,
+      club_title: club.title || `Club ${c.chatId}`,
+      discipline: c.discipline as ChallengeDiscipline,
+      puzzle_id: c.puzzleId,
+      edition: c.edition,
+      difficulty: c.difficulty as ChallengeDifficulty,
+      category: c.category || c.domain || "MIX",
+      domain: c.domain || "",
+      published_at: c.publishedAt.toISOString(),
+      solved_count: b?.solvedCount ?? 0,
+      best_time_ms: b?.bestTimeMs ?? null,
+      my_status: myStatus,
+      my_solved: b?.mySolved ?? false,
+      my_points: b?.myPoints ?? 0,
+      my_attempts: b?.myAttempts ?? 0,
+    });
+  }
+
+  return activeItems;
+}
+
 async function computeViewerNextActive(params: {
   chatId: string;
   viewerTelegramId: string;
+  viewerIsSuperadmin: boolean;
   exclude?: {
     discipline: string;
     puzzleId: string;
@@ -87,61 +276,37 @@ async function computeViewerNextActive(params: {
   remainingActiveCount: number;
   nextActiveChallenge: NextActiveChallengeRefDTO | null;
 }> {
-  const [published, myCompleted] = await Promise.all([
-    db
-      .select({
-        discipline: clubChallenges.discipline,
-        puzzleId: clubChallenges.puzzleId,
-        edition: clubChallenges.edition,
-      })
-      .from(clubChallenges)
-      .where(eq(clubChallenges.chatId, params.chatId))
-      .orderBy(desc(clubChallenges.publishedAt))
-      .limit(10),
-    db
-      .select({
-        discipline: challengeAttempts.discipline,
-        puzzleId: challengeAttempts.puzzleId,
-        edition: challengeAttempts.edition,
-      })
-      .from(challengeAttempts)
-      .where(
-        and(
-          eq(challengeAttempts.chatId, params.chatId),
-          eq(challengeAttempts.telegramId, params.viewerTelegramId),
-          or(
-            eq(challengeAttempts.status, "solved"),
-            eq(challengeAttempts.status, "surrendered")
-          )
-        )
-      ),
-  ]);
+  const goItems = await getViewerTodayActiveChallenges({
+    viewerTelegramId: params.viewerTelegramId,
+    isSuperadmin: params.viewerIsSuperadmin,
+  });
 
-  const completedSet = new Set(
-    myCompleted.map((a) => `${a.discipline}:${a.puzzleId}:${a.edition}`)
-  );
-
-  const active = published.filter((c) => {
+  const remaining = goItems.filter((item) => {
     if (
       params.exclude &&
-      c.discipline === params.exclude.discipline &&
-      c.puzzleId === params.exclude.puzzleId &&
-      c.edition === params.exclude.edition
+      item.chat_id === params.chatId &&
+      item.discipline === params.exclude.discipline &&
+      item.puzzle_id === params.exclude.puzzleId &&
+      item.edition === params.exclude.edition
     ) {
       return false;
     }
-    return !completedSet.has(`${c.discipline}:${c.puzzleId}:${c.edition}`);
+    return true;
   });
 
-  const first = active[0];
+  const next =
+    remaining.find((item) => item.chat_id === params.chatId) ??
+    remaining[0] ??
+    null;
+
   return {
-    remainingActiveCount: active.length,
-    nextActiveChallenge: first
+    remainingActiveCount: remaining.length,
+    nextActiveChallenge: next
       ? {
-          discipline: first.discipline as ChallengeDiscipline,
-          puzzle_id: first.puzzleId,
-          edition: first.edition,
-          chat_id: params.chatId,
+          discipline: next.discipline,
+          puzzle_id: next.puzzle_id,
+          edition: next.edition,
+          chat_id: next.chat_id,
         }
       : null,
   };
@@ -154,6 +319,7 @@ async function buildChallengeStateDTO(params: {
   edition: string;
   viewerTelegramId: string;
   viewerDisplayName: string;
+  viewerIsSuperadmin: boolean;
 }): Promise<ChallengeStateDTO> {
   const club = await ensureClubExists(params.chatId);
 
@@ -320,6 +486,7 @@ async function buildChallengeStateDTO(params: {
   const nextActiveInfo = await computeViewerNextActive({
     chatId: params.chatId,
     viewerTelegramId: params.viewerTelegramId,
+    viewerIsSuperadmin: params.viewerIsSuperadmin,
     exclude: {
       discipline: params.discipline,
       puzzleId: params.puzzleId,
@@ -388,135 +555,16 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
       .send(png);
   });
 
-  // 1b. Active challenges across all clubs where user participates (/api/challenges/go-feed)
+  // 1b. Active today challenges across all clubs where user participates (/api/challenges/go-feed)
   fastify.get(
     "/challenges/go-feed",
     { preHandler: [fastify.authenticate] },
     async (req): Promise<GoActiveChallengesResponseDTO> => {
-      const viewerId = req.user.telegramId;
-
-      const [allClubs, myAdminRows, myParticipatedRows] = await Promise.all([
-        db.select().from(clubs),
-        db
-          .select({ chatId: clubAdmins.chatId })
-          .from(clubAdmins)
-          .where(eq(clubAdmins.telegramId, viewerId)),
-        db
-          .select({ chatId: challengeAttempts.chatId })
-          .from(challengeAttempts)
-          .where(eq(challengeAttempts.telegramId, viewerId)),
-      ]);
-
-      const adminChatIds = new Set(myAdminRows.map((r) => r.chatId));
-      const participatedChatIds = new Set(
-        myParticipatedRows.map((r) => r.chatId)
-      );
-
-      const memberClubs = allClubs.filter(
-        (c) =>
-          c.status !== "blocked" &&
-          c.status !== "bot_removed" &&
-          (req.user.isSuperadmin ||
-            c.ownerTelegramId === viewerId ||
-            adminChatIds.has(c.chatId) ||
-            participatedChatIds.has(c.chatId))
-      );
-
-      if (memberClubs.length === 0) {
-        return { challenges: [] };
-      }
-
-      const clubTitleByChatId = new Map<string, string>(
-        memberClubs.map((c) => [c.chatId, c.title])
-      );
-      const memberChatIds = memberClubs.map((c) => c.chatId);
-
-      const [recentChallenges, attemptRows] = await Promise.all([
-        db
-          .select()
-          .from(clubChallenges)
-          .where(inArray(clubChallenges.chatId, memberChatIds))
-          .orderBy(desc(clubChallenges.publishedAt))
-          .limit(100),
-        db
-          .select()
-          .from(challengeAttempts)
-          .where(inArray(challengeAttempts.chatId, memberChatIds)),
-      ]);
-
-      interface GoStatsBucket {
-        solvedCount: number;
-        bestTimeMs: number | null;
-        myStatus: ChallengeAttemptStatus | null;
-        mySolved: boolean;
-        myPoints: number;
-        myAttempts: number;
-      }
-
-      const statsByKey = new Map<string, GoStatsBucket>();
-      for (const att of attemptRows) {
-        const key = `${att.chatId}:${att.discipline}:${att.puzzleId}:${att.edition}`;
-        let bucket = statsByKey.get(key);
-        if (!bucket) {
-          bucket = {
-            solvedCount: 0,
-            bestTimeMs: null,
-            myStatus: null,
-            mySolved: false,
-            myPoints: 0,
-            myAttempts: 0,
-          };
-          statsByKey.set(key, bucket);
-        }
-
-        if (att.solved) {
-          bucket.solvedCount += 1;
-          if (att.solvedTimeMs !== null && att.solvedTimeMs !== undefined) {
-            const ms = Number(att.solvedTimeMs);
-            if (bucket.bestTimeMs === null || ms < bucket.bestTimeMs) {
-              bucket.bestTimeMs = ms;
-            }
-          }
-        }
-
-        if (att.telegramId === viewerId) {
-          bucket.myStatus = (att.status || "in_progress") as ChallengeAttemptStatus;
-          bucket.mySolved = att.solved;
-          bucket.myPoints = roundPoints(
-            calculateAttemptPoints(att.solved, att.attempts)
-          );
-          bucket.myAttempts = att.attempts;
-        }
-      }
-
-      const activeItems: GoActiveChallengeItemDTO[] = [];
-      for (const c of recentChallenges) {
-        const key = `${c.chatId}:${c.discipline}:${c.puzzleId}:${c.edition}`;
-        const b = statsByKey.get(key);
-        const myStatus = b?.myStatus ?? null;
-        if (myStatus === "solved" || myStatus === "surrendered") {
-          continue;
-        }
-        activeItems.push({
-          chat_id: c.chatId,
-          club_title: clubTitleByChatId.get(c.chatId) ?? `Club ${c.chatId}`,
-          discipline: c.discipline as ChallengeDiscipline,
-          puzzle_id: c.puzzleId,
-          edition: c.edition,
-          difficulty: c.difficulty as ChallengeDifficulty,
-          category: c.category || c.domain || "MIX",
-          domain: c.domain || "",
-          published_at: c.publishedAt.toISOString(),
-          solved_count: b?.solvedCount ?? 0,
-          best_time_ms: b?.bestTimeMs ?? null,
-          my_status: myStatus,
-          my_solved: b?.mySolved ?? false,
-          my_points: b?.myPoints ?? 0,
-          my_attempts: b?.myAttempts ?? 0,
-        });
-      }
-
-      return { challenges: activeItems };
+      const challenges = await getViewerTodayActiveChallenges({
+        viewerTelegramId: req.user.telegramId,
+        isSuperadmin: req.user.isSuperadmin,
+      });
+      return { challenges };
     }
   );
 
@@ -533,6 +581,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         req.user.isSuperadmin
       );
 
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const rows = await db
         .select({
           attempt: challengeAttempts,
@@ -540,7 +589,12 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .from(challengeAttempts)
         .leftJoin(users, eq(challengeAttempts.telegramId, users.telegramId))
-        .where(eq(challengeAttempts.chatId, chatId));
+        .where(
+          and(
+            eq(challengeAttempts.chatId, chatId),
+            gte(challengeAttempts.updatedAt, sevenDaysAgo)
+          )
+        );
 
       const mapByUser = new Map<string, ClubRecordEntryDTO>();
 
@@ -614,12 +668,17 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         rec.total_seconds = Math.round((rec.total_time_ms / 1000) * 10) / 10;
       });
 
-      const recentChallenges = await db
+      const rawChallenges = await db
         .select()
         .from(clubChallenges)
         .where(eq(clubChallenges.chatId, chatId))
         .orderBy(desc(clubChallenges.publishedAt))
-        .limit(10);
+        .limit(50);
+
+      const now = new Date();
+      const recentChallenges = rawChallenges.filter((c) =>
+        isSameDayInTimezone(c.publishedAt, now, clubRow.timezone)
+      );
 
       interface ChallengeStatsBucket {
         solvedCount: number;
@@ -703,17 +762,34 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: ChallengeRouteParams }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId",
     { preHandler: [fastify.authenticate] },
-    async (req) => {
+    async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
+      const safeEdition = edition || "0";
       const displayName = req.user.firstName;
+      const club = await ensureClubExists(chatId);
+
+      const expired = await isChallengeExpiredForViewer({
+        chatId,
+        discipline,
+        puzzleId,
+        edition: safeEdition,
+        viewerTelegramId: req.user.telegramId,
+        clubTimezone: club.timezone,
+      });
+      if (expired) {
+        return reply.code(410).send({
+          error: "Challenge expired. Only today's challenges can be solved.",
+        });
+      }
 
       return buildChallengeStateDTO({
         chatId,
         discipline,
         puzzleId,
-        edition: edition || "0",
+        edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
+        viewerIsSuperadmin: req.user.isSuperadmin,
       });
     }
   );
@@ -725,13 +801,26 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId/attempt",
     { preHandler: [fastify.authenticate] },
-    async (req) => {
+    async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
       const displayName = req.user.firstName;
       const { solved, time_ms, uci_moves = "", pgn_moves = "" } = req.body;
 
-      await ensureClubExists(chatId);
+      const club = await ensureClubExists(chatId);
+      const expired = await isChallengeExpiredForViewer({
+        chatId,
+        discipline,
+        puzzleId,
+        edition: safeEdition,
+        viewerTelegramId: req.user.telegramId,
+        clubTimezone: club.timezone,
+      });
+      if (expired) {
+        return reply.code(410).send({
+          error: "Challenge expired. Only today's challenges can be solved.",
+        });
+      }
 
       // Ensure attempt row exists first
       await db
@@ -821,6 +910,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
+        viewerIsSuperadmin: req.user.isSuperadmin,
       });
     }
   );
@@ -829,12 +919,25 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: ChallengeRouteParams }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId/surrender",
     { preHandler: [fastify.authenticate] },
-    async (req) => {
+    async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
       const displayName = req.user.firstName;
 
-      await ensureClubExists(chatId);
+      const club = await ensureClubExists(chatId);
+      const expired = await isChallengeExpiredForViewer({
+        chatId,
+        discipline,
+        puzzleId,
+        edition: safeEdition,
+        viewerTelegramId: req.user.telegramId,
+        clubTimezone: club.timezone,
+      });
+      if (expired) {
+        return reply.code(410).send({
+          error: "Challenge expired. Only today's challenges can be solved.",
+        });
+      }
 
       await db
         .insert(challengeAttempts)
@@ -887,6 +990,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
+        viewerIsSuperadmin: req.user.isSuperadmin,
       });
     }
   );
