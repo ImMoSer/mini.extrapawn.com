@@ -1,4 +1,4 @@
-import { count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import {
   normalizeWeeklySchedule,
   type AppLanguage,
@@ -15,15 +15,20 @@ export async function mapClubRowToSummaryDTO(
   viewerTelegramId: string,
   viewerIsSuperadmin: boolean
 ): Promise<ClubSummaryDTO> {
-  let isAdmin =
-    viewerIsSuperadmin || row.ownerTelegramId === viewerTelegramId;
+  let isAdmin = viewerIsSuperadmin;
 
   if (!isAdmin) {
-    const adminRows = await db
-      .select()
+    const [adminRow] = await db
+      .select({ telegramId: clubAdmins.telegramId })
       .from(clubAdmins)
-      .where(eq(clubAdmins.chatId, row.chatId));
-    isAdmin = adminRows.some((a) => a.telegramId === viewerTelegramId);
+      .where(
+        and(
+          eq(clubAdmins.chatId, row.chatId),
+          eq(clubAdmins.telegramId, viewerTelegramId)
+        )
+      )
+      .limit(1);
+    isAdmin = Boolean(adminRow);
   }
 
   const [countRes] = await db

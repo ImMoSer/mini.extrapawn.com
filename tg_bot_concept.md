@@ -106,7 +106,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 2. **`tele_app.clubs`** (`chat_id text PRIMARY KEY`):
    - Поля: `title`, `username`, `invite_link`, `owner_telegram_id`, `topic_thread_id`, `member_count`, `language`, `timezone`, `status` (`'active' | 'paused' | 'blocked' | 'bot_removed' | 'below_threshold'`), `blocked_reason`, `is_default`, `schedule_times` (`jsonb`, по умолчанию `["10:00", "18:00"]`), `leaderboard_cron_days` (`integer`, по умолчанию `7`), `filter_disciplines` (`jsonb`), `filter_difficulties` (`jsonb`), `filter_focus_group`, `filter_focus_keys` (`jsonb`), `filter_objective`, `last_published_at`, `last_leaderboard_at`, `terms_accepted_at`, `created_at`, `updated_at`.
 3. **`tele_app.club_admins`** (`PRIMARY KEY (chat_id, telegram_id)`):
-   - Права управления настройками клуба (`role`: `'owner' | 'admin'`).
+   - Права управления настройками клуба (`role`: `'owner' | 'admin'`). Строго синхронизируется с Telegram: в таблицу попадают **только** владелец супергруппы (`creator` -> `'owner'`) и администраторы с правом `can_manage_topics === true` (`administrator` -> `'admin'`). Синхронизация трёхуровневая: мгновенно по событиям `chat_member`, при подключении/фоновом реконсиле через `getChatAdministrators` (раз в 30 мин) и в реальном времени через `getChatMember` при открытии/сохранении настроек.
 4. **`tele_app.club_challenges`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition)`):
    - Опубликованные в клубе челленджи (хранит `initial_fen`, `puzzle_fen`, `user_color`, `first_move`, `strategy`, `objective`, `tactical_solution`, `domain`, `category`, `tg_message_id`, `published_at`). Используется для исключения повторов задач в клубе и для отправки реплаев на `tg_message_id`.
 5. **`tele_app.challenge_attempts`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition, telegram_id)`):
@@ -144,9 +144,12 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 - Бот проверяет:
   1. Чат является `supergroup`.
   2. Число участников `>= 30` (кроме BOSSа `5106981885` и дефолтного клуба).
-  3. Пригласивший имеет статус `creator` или `administrator` и не превысил лимит в 2 клуба.
+  3. Пригласивший имеет статус `creator` или `administrator` с правом `can_manage_topics === true`, а владелец группы (`creator`) не превысил лимит в 2 клуба.
   4. Создаёт тему `createForumTopic(chat_id, "ExtraPawnTeleBot")` (или использует `293770` для `EXTRAPAWNCLUB`).
-- При успешной проверке регистрирует клуб в `tele_app.clubs` (с `is_active = TRUE` и 7-дневным расписанием `weekly_schedule`) и сразу публикует приветствие и первый челлендж.
+- При успешной проверке регистрирует клуб в `tele_app.clubs` (с `is_active = TRUE` и 7-дневным расписанием `weekly_schedule`), синхронизирует всех управляющих (`creator` + админы с `can_manage_topics`) в `tele_app.club_admins` и сразу публикует приветствие и первый челлендж.
+- **Инциденты (удаление бота или лишение прав) и полное удаление клуба:**
+  - Если в подключённой супергруппе бота исключают/блокируют (`left` / `kicked`) или лишают обязательных прав (`can_manage_topics` / `can_delete_messages`), данные клуба **не удаляются**: клуб переводится в `bot_removed` или `paused`, а BOSSу (`5106981885`) мгновенно отправляется уведомление в ЛС Telegram с деталями инцидента, автором действия и кнопкой перехода в `/super-admin`.
+  - Полное удаление клуба и его данных из PostgreSQL доступно **исключительно `SuperAdmin` (`5106981885`)**.
 
 ### 5.3. Интервальное расписание по 7 дням, Умная Авто-Пауза и Автоочистка чата
 
@@ -206,7 +209,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 | `/challenge/:discipline/:puzzleId/:edition/:chatId/:userId?` | `ChallengePlayPage.vue`    | Решение челленджа на доске `Chessground` (`wood4`), спарринг с ботом, анализ Stockfish (`MultiPV=3`) и Coach, кнопка `🔥 Следующий челлендж → (осталось N)` и реплей чужих ходов.           |
 | `/records/:discipline/:puzzleId/:edition/:chatId/:userId?`   | `PuzzleRecordsPage.vue`    | Таблица участников конкретного челленджа с переходом к просмотру их ходов.                                                                                                                   |
 | `/challenge/records/:chatId`                                 | `ClubRecordsPage.vue`      | Последние 10 челленджей клуба (`.limit(10)`) в 2 вкладках (`🔥 Активные` по умолчанию / `✅ Пройденные` с бейджами `Затащил` / `Сдался`, локализованной темой и соц. триггером `👥 Решили • Лучшее`) + общий рейтинг клуба. |
-| `/club-settings/:chatId`                                     | `ClubSettingsPage.vue`     | Настройки бота: тумблер активности, часовой пояс клуба, 7 вкладок дней недели (`Пн..Вс`) с выходными, копированием на будни/неделю, интервалами и удалением клуба в 1 клик.                  |
+| `/club-settings/:chatId`                                     | `ClubSettingsPage.vue`     | Настройки бота (для `creator` и админов с `can_manage_topics`): тумблер активности, часовой пояс клуба, 7 вкладок дней недели (`Пн..Вс`) с выходными, копированием на будни/неделю и интервалами (удаление клуба доступно только `SuperAdmin`). |
 | `/super-admin`                                               | `SuperAdminPage.vue`       | Панель BOSSа (`5106981885`): статистика платформы, блокировка/разблокировка групп, промо-рассылки на 3 языках с предпросмотром в ЛС.                                                         |
 
 ---

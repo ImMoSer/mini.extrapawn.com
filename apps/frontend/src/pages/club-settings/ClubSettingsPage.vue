@@ -233,11 +233,21 @@ async function toggleMasterActive() {
   statusBanner.value = null;
   try {
     const nextVal = !isClubActive.value;
-    const updated = await cabinetStore.toggleClubActive(chatId.value, nextVal);
-    if (updated) {
-      club.value = updated;
-      isClubActive.value = updated.is_active;
-    }
+    const updated = await apiRequest<ClubSummaryDTO>(
+      `/clubs/${encodeURIComponent(chatId.value)}/active`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: nextVal }),
+      }
+    );
+    club.value = updated;
+    isClubActive.value = updated.is_active;
+    await cabinetStore.fetchCabinet();
+  } catch (err) {
+    statusBanner.value = {
+      type: "error",
+      text: err instanceof Error ? err.message : String(err),
+    };
   } finally {
     isTogglingActive.value = false;
   }
@@ -246,9 +256,16 @@ async function toggleMasterActive() {
 async function loadClub() {
   isLoading.value = true;
   try {
+    if (!cabinetStore.data) {
+      await cabinetStore.fetchCabinet();
+    }
     const res = await apiRequest<ClubSummaryDTO>(
       `/clubs/${encodeURIComponent(chatId.value)}`
     );
+    if (!res.is_admin && !cabinetStore.isSuperadmin) {
+      await router.replace("/clubs");
+      return;
+    }
     club.value = res;
     isClubActive.value = res.is_active;
     weeklySchedule.value = normalizeWeeklySchedule(res.weekly_schedule);
@@ -859,9 +876,9 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- Moderator Disconnect & Purge All Club Data -->
+    <!-- SuperAdmin Only: Disconnect & Purge All Club Data -->
     <section
-      v-if="club"
+      v-if="club && cabinetStore.isSuperadmin"
       class="glass flex flex-col gap-2.5 border border-danger/30 p-4"
     >
       <div class="text-xs font-bold tracking-wider text-danger uppercase">

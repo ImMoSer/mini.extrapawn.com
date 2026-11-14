@@ -1089,6 +1089,10 @@ export function resolveRouteFromStartParam(startParam: string): string | null {
   const raw = startParam.trim();
   if (!raw) return null;
 
+  if (raw === "superadmin" || raw === "super_admin") {
+    return "/super-admin";
+  }
+
   const parts = raw.split("__");
   const kind = parts[0];
 

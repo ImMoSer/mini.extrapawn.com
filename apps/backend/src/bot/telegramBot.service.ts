@@ -1,7 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, desc, eq, gte, isNotNull, lt, ne, or } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  ne,
+  or,
+} from "drizzle-orm";
 import {
   ALL_DAYS_OF_WEEK,
   calculateAttemptPoints,
@@ -39,46 +49,115 @@ interface TelegramApiResponse<T> {
   description?: string;
 }
 
+export interface TelegramUserPayload {
+  id: number;
+  is_bot?: boolean;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  language_code?: string;
+}
+
+export interface TelegramChatMemberPayload {
+  status: string;
+  user: TelegramUserPayload;
+  is_anonymous?: boolean;
+  can_manage_chat?: boolean;
+  can_delete_messages?: boolean;
+  can_manage_topics?: boolean;
+}
+
+interface TelegramChatPayload {
+  id: number;
+  type: string;
+  title?: string;
+  username?: string;
+  is_forum?: boolean;
+}
+
 interface TelegramUpdate {
   update_id: number;
   message?: {
     message_id: number;
-    from?: {
-      id: number;
-      first_name?: string;
-      last_name?: string;
-      username?: string;
-      language_code?: string;
-    };
-    chat: {
-      id: number;
-      type: string;
-      title?: string;
-      username?: string;
-    };
+    from?: TelegramUserPayload;
+    chat: TelegramChatPayload;
     text?: string;
   };
   my_chat_member?: {
-    chat: {
-      id: number;
-      type: string;
-      title?: string;
-      username?: string;
-      is_forum?: boolean;
-    };
-    from: {
-      id: number;
-      first_name?: string;
-      last_name?: string;
-      username?: string;
-      language_code?: string;
-    };
-    new_chat_member: {
-      status: string;
-      can_manage_topics?: boolean;
-    };
+    chat: TelegramChatPayload;
+    from: TelegramUserPayload;
+    old_chat_member?: TelegramChatMemberPayload;
+    new_chat_member: TelegramChatMemberPayload;
+  };
+  chat_member?: {
+    chat: TelegramChatPayload;
+    from: TelegramUserPayload;
+    old_chat_member: TelegramChatMemberPayload;
+    new_chat_member: TelegramChatMemberPayload;
   };
 }
+
+/**
+ * Determines whether a Telegram supergroup member is authorized to configure the club bot:
+ * ONLY `creator` (ChatMemberOwner) OR `administrator` with `can_manage_topics === true` (excluding bots).
+ */
+export function resolveClubAdminRole(
+  member: TelegramChatMemberPayload | null | undefined
+): "owner" | "admin" | null {
+  if (!member || member.user?.is_bot) return null;
+  if (member.status === "creator") return "owner";
+  if (
+    member.status === "administrator" &&
+    member.can_manage_topics === true
+  ) {
+    return "admin";
+  }
+  return null;
+}
+
+function getBotTelegramUserId(): number | null {
+  const prefix = env.TELEGRAM_BOT_TOKEN.split(":")[0]?.trim();
+  if (!prefix) return null;
+  const parsed = Number.parseInt(prefix, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+// Tracks intentional bot leaves (validation failure, SuperAdmin block/purge) so we don't send false incident DMs
+const botInitiatedLeaves = new Map<string, number>();
+
+function markBotInitiatedLeave(chatId: string): void {
+  botInitiatedLeaves.set(chatId, Date.now() + 30_000);
+}
+
+function consumeBotInitiatedLeave(chatId: string): boolean {
+  const expiresAt = botInitiatedLeaves.get(chatId);
+  if (!expiresAt) return false;
+  botInitiatedLeaves.delete(chatId);
+  return Date.now() <= expiresAt;
+}
+
+// Short-lived cache (20s TTL) for live `getChatMember` reads; invalidated immediately on `chat_member` updates
+const LIVE_ADMIN_CACHE_TTL_MS = 20_000;
+const liveAdminRoleCache = new Map<
+  string,
+  { role: "owner" | "admin" | null; expiresAt: number }
+>();
+
+function invalidateClubLiveAdminCache(chatId: string, telegramId?: string): void {
+  if (telegramId) {
+    liveAdminRoleCache.delete(`${chatId}:${telegramId}`);
+    return;
+  }
+  const prefix = `${chatId}:`;
+  for (const key of liveAdminRoleCache.keys()) {
+    if (key.startsWith(prefix)) {
+      liveAdminRoleCache.delete(key);
+    }
+  }
+}
+
+// Deduplicates identical SuperAdmin incident DMs within 60 seconds
+const recentSuperadminAlerts = new Map<string, number>();
 
 const DISCIPLINE_LABELS: Record<
   AppLanguage,
@@ -288,12 +367,186 @@ async function deleteTelegramMessage(
   }
 }
 
+async function upsertTelegramUser(raw: TelegramUserPayload): Promise<string> {
+  const telegramId = String(raw.id);
+  const firstName = raw.first_name?.trim() || "Admin";
+  const lastName = raw.last_name?.trim() || null;
+  const username = raw.username?.trim() || null;
+  const langRaw = raw.language_code?.toLowerCase() || "";
+  const languageCode: AppLanguage = langRaw.startsWith("en")
+    ? "en"
+    : langRaw.startsWith("de")
+      ? "de"
+      : "ru";
+  const isSuperadmin = telegramId === env.SUPERADMIN_TELEGRAM_ID;
+
+  await db
+    .insert(users)
+    .values({
+      telegramId,
+      username,
+      firstName,
+      lastName,
+      languageCode,
+      isSuperadmin,
+    })
+    .onConflictDoUpdate({
+      target: users.telegramId,
+      set: {
+        username,
+        firstName,
+        lastName,
+        isSuperadmin,
+        updatedAt: new Date(),
+      },
+    });
+
+  return telegramId;
+}
+
+async function notifySuperadminBotIncident(params: {
+  kind: "bot_removed" | "rights_revoked";
+  chatId: string;
+  clubTitle: string;
+  clubUsername?: string | null;
+  detail: string;
+  actor?: TelegramUserPayload;
+}): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.SUPERADMIN_TELEGRAM_ID) return;
+
+  const dedupKey = `${params.chatId}:${params.kind}:${params.detail}`;
+  const nowMs = Date.now();
+  const prevAt = recentSuperadminAlerts.get(dedupKey);
+  if (prevAt && nowMs - prevAt < 60_000) {
+    return;
+  }
+  recentSuperadminAlerts.set(dedupKey, nowMs);
+
+  const safeTitle = escapeHtml(params.clubTitle || `Club ${params.chatId}`);
+  const clubHandle = params.clubUsername
+    ? ` (@${escapeHtml(params.clubUsername)})`
+    : "";
+  const safeDetail = escapeHtml(params.detail);
+
+  let actorLine = "";
+  if (params.actor) {
+    const actorName = escapeHtml(
+      [params.actor.first_name, params.actor.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "User"
+    );
+    const actorHandle = params.actor.username
+      ? `@${escapeHtml(params.actor.username)}, `
+      : "";
+    actorLine = `\n👤 <b>Кто выполнил:</b> ${actorName} (${actorHandle}ID: <code>${params.actor.id}</code>)`;
+  }
+
+  const header =
+    params.kind === "bot_removed"
+      ? `🚨 <b>Бота удалили / кикнули из клуба!</b>`
+      : `⚠️ <b>Бота лишили прав в клубе!</b>`;
+
+  const statusNote =
+    params.kind === "bot_removed"
+      ? `⏸ Клуб переведён в статус <b>BOT REMOVED</b> (публикации остановлены, данные сохранены в БД). Вы можете полностью удалить данные клуба или заблокировать его в панели BOSS.`
+      : `⏸ Клуб автоматически поставлен на паузу (<b>PAUSED</b>), данные сохранены в БД. Вы можете связаться с клубом, заблокировать его или полностью удалить данные в панели BOSS.`;
+
+  const text = [
+    header,
+    ``,
+    `🏛 <b>Клуб:</b> ${safeTitle}${clubHandle}`,
+    `🆔 <b>chat_id:</b> <code>${escapeHtml(params.chatId)}</code>`,
+    `📌 <b>Детали:</b> ${safeDetail}${actorLine}`,
+    ``,
+    statusNote,
+  ].join("\n");
+
+  try {
+    await callTelegramJson("sendMessage", {
+      chat_id: env.SUPERADMIN_TELEGRAM_ID,
+      parse_mode: "HTML",
+      text,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "🛡 Открыть панель BOSS",
+              url: `https://t.me/${env.BOT_USERNAME}?startapp=superadmin`,
+            },
+          ],
+        ],
+      },
+    });
+  } catch (err) {
+    console.warn(
+      "[TelegramBot] Failed to send incident DM to SuperAdmin:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+async function handleClubSendPermissionFailure(
+  club: typeof clubs.$inferSelect,
+  errorDescription: string
+): Promise<void> {
+  const lower = errorDescription.toLowerCase();
+  const isRemoved =
+    lower.includes("bot was kicked") ||
+    lower.includes("bot is not a member") ||
+    lower.includes("chat not found") ||
+    lower.includes("chat was deactivated") ||
+    lower.includes("group chat was upgraded");
+
+  if (isRemoved) {
+    await db
+      .update(clubs)
+      .set({ status: "bot_removed", isActive: false, updatedAt: new Date() })
+      .where(and(eq(clubs.chatId, club.chatId), ne(clubs.status, "blocked")));
+    await db.delete(clubAdmins).where(eq(clubAdmins.chatId, club.chatId));
+    invalidateClubLiveAdminCache(club.chatId);
+
+    await notifySuperadminBotIncident({
+      kind: "bot_removed",
+      chatId: club.chatId,
+      clubTitle: club.title,
+      clubUsername: club.username,
+      detail: `Ошибка Telegram API при публикации: ${errorDescription}`,
+    });
+    return;
+  }
+
+  const isRightsOrTopicError =
+    lower.includes("not enough rights") ||
+    lower.includes("have no rights") ||
+    lower.includes("chat_write_forbidden") ||
+    lower.includes("topic_closed") ||
+    lower.includes("topic_deleted") ||
+    lower.includes("message thread not found");
+
+  if (isRightsOrTopicError) {
+    await db
+      .update(clubs)
+      .set({ status: "paused", isActive: false, updatedAt: new Date() })
+      .where(and(eq(clubs.chatId, club.chatId), ne(clubs.status, "blocked")));
+
+    await notifySuperadminBotIncident({
+      kind: "rights_revoked",
+      chatId: club.chatId,
+      clubTitle: club.title,
+      clubUsername: club.username,
+      detail: `Ошибка доступа / темы в Telegram API: ${errorDescription}`,
+    });
+  }
+}
+
 async function sendTelegramPhoto(params: {
   chatId: string;
   messageThreadId?: number;
   pngBuffer: Buffer;
   caption: string;
   replyMarkup?: Record<string, unknown>;
+  onApiError?: (description: string) => void;
 }): Promise<number | null> {
   if (!env.TELEGRAM_BOT_TOKEN) {
     return null;
@@ -334,6 +587,9 @@ async function sendTelegramPhoto(params: {
           `[TelegramBot] sendPhoto API error for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}):`,
           data.description
         );
+        if (data.description && params.onApiError) {
+          params.onApiError(data.description);
+        }
         return null;
       }
       return data.result?.message_id ?? null;
@@ -473,11 +729,15 @@ export const telegramBotService = {
           ? "🏆 TABELLE"
           : "🏆 ТАБЛИЦА";
 
+    let apiErrorDescription: string | undefined;
     const tgMessageId = await sendTelegramPhoto({
       chatId,
       messageThreadId: club.topicThreadId,
       pngBuffer,
       caption,
+      onApiError: (desc) => {
+        apiErrorDescription = desc;
+      },
       replyMarkup: {
         inline_keyboard: [
           [
@@ -495,8 +755,11 @@ export const telegramBotService = {
     });
 
     if (!tgMessageId && env.TELEGRAM_BOT_TOKEN) {
+      if (apiErrorDescription) {
+        await handleClubSendPermissionFailure(club, apiErrorDescription);
+      }
       throw new Error(
-        `[TelegramBot] sendPhoto returned no message_id for chat ${chatId} (thread ${club.topicThreadId})`
+        `[TelegramBot] sendPhoto returned no message_id for chat ${chatId} (thread ${club.topicThreadId})${apiErrorDescription ? `: ${apiErrorDescription}` : ""}`
       );
     }
 
@@ -850,6 +1113,7 @@ export const telegramBotService = {
    */
   async leaveClubChat(chatId: string, reasonMessage?: string): Promise<void> {
     if (!env.TELEGRAM_BOT_TOKEN) return;
+    markBotInitiatedLeave(chatId);
     if (reasonMessage) {
       await callTelegramJson("sendMessage", {
         chat_id: chatId,
@@ -933,6 +1197,7 @@ export const telegramBotService = {
       }
     }
 
+    markBotInitiatedLeave(chatId);
     await callTelegramJson("leaveChat", { chat_id: chatId });
   },
 
@@ -1016,7 +1281,356 @@ export const telegramBotService = {
   },
 
   /**
-   * Handles `my_chat_member` updates when a club owner adds @ExtraPawnTeleBot to a group.
+   * Fetches `getChatAdministrators` from Telegram and synchronizes `tele_app.club_admins`
+   * so ONLY `creator` and `administrator` with `can_manage_topics === true` have settings access.
+   */
+  async syncClubAdminsFromTelegram(chatId: string): Promise<{
+    synced: boolean;
+    creatorTelegramId: string | null;
+  }> {
+    if (!env.TELEGRAM_BOT_TOKEN) {
+      return { synced: false, creatorTelegramId: null };
+    }
+
+    const res = await callTelegramJson<TelegramChatMemberPayload[]>(
+      "getChatAdministrators",
+      { chat_id: chatId }
+    );
+
+    if (!res.ok || !Array.isArray(res.result)) {
+      if (res.description) {
+        const [club] = await db
+          .select()
+          .from(clubs)
+          .where(eq(clubs.chatId, chatId))
+          .limit(1);
+        if (club && club.status !== "blocked" && club.status !== "bot_removed") {
+          await handleClubSendPermissionFailure(club, res.description);
+        }
+      }
+      return { synced: false, creatorTelegramId: null };
+    }
+
+    const eligible: Array<{
+      telegramId: string;
+      role: "owner" | "admin";
+      user: TelegramUserPayload;
+    }> = [];
+
+    for (const member of res.result) {
+      const role = resolveClubAdminRole(member);
+      if (!role) continue;
+      const telegramId = await upsertTelegramUser(member.user);
+      eligible.push({ telegramId, role, user: member.user });
+    }
+
+    const creatorEntry = eligible.find((e) => e.role === "owner") ?? null;
+    if (creatorEntry) {
+      await db
+        .update(clubs)
+        .set({
+          ownerTelegramId: creatorEntry.telegramId,
+          updatedAt: new Date(),
+        })
+        .where(eq(clubs.chatId, chatId));
+    }
+
+    const existingRows = await db
+      .select({ telegramId: clubAdmins.telegramId })
+      .from(clubAdmins)
+      .where(eq(clubAdmins.chatId, chatId));
+
+    const eligibleIdSet = new Set(eligible.map((e) => e.telegramId));
+    const toRemove = existingRows
+      .map((r) => r.telegramId)
+      .filter((id) => !eligibleIdSet.has(id));
+
+    if (toRemove.length > 0) {
+      await db
+        .delete(clubAdmins)
+        .where(
+          and(
+            eq(clubAdmins.chatId, chatId),
+            inArray(clubAdmins.telegramId, toRemove)
+          )
+        );
+    }
+
+    for (const item of eligible) {
+      await db
+        .insert(clubAdmins)
+        .values({
+          chatId,
+          telegramId: item.telegramId,
+          role: item.role,
+        })
+        .onConflictDoUpdate({
+          target: [clubAdmins.chatId, clubAdmins.telegramId],
+          set: { role: item.role },
+        });
+    }
+
+    invalidateClubLiveAdminCache(chatId);
+    const expiresAt = Date.now() + LIVE_ADMIN_CACHE_TTL_MS;
+    for (const item of eligible) {
+      liveAdminRoleCache.set(`${chatId}:${item.telegramId}`, {
+        role: item.role,
+        expiresAt,
+      });
+    }
+
+    return {
+      synced: true,
+      creatorTelegramId: creatorEntry?.telegramId ?? null,
+    };
+  },
+
+  /**
+   * Verifies live in Telegram (`getChatMember`) whether `telegramId` currently holds
+   * `creator` or `administrator` + `can_manage_topics === true` in `chatId`,
+   * immediately updating `tele_app.club_admins` in PostgreSQL.
+   */
+  async verifyLiveClubManager(
+    chatId: string,
+    telegramId: string,
+    options?: { forceFresh?: boolean }
+  ): Promise<boolean> {
+    if (telegramId === env.SUPERADMIN_TELEGRAM_ID) {
+      return true;
+    }
+
+    const checkLocalDbFallback = async (): Promise<boolean> => {
+      const [row] = await db
+        .select({ telegramId: clubAdmins.telegramId })
+        .from(clubAdmins)
+        .where(
+          and(
+            eq(clubAdmins.chatId, chatId),
+            eq(clubAdmins.telegramId, telegramId)
+          )
+        )
+        .limit(1);
+      return Boolean(row);
+    };
+
+    if (!env.TELEGRAM_BOT_TOKEN) {
+      return checkLocalDbFallback();
+    }
+
+    const cacheKey = `${chatId}:${telegramId}`;
+    if (!options?.forceFresh) {
+      const cached = liveAdminRoleCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.role !== null;
+      }
+    }
+
+    const numericUserId = Number(telegramId);
+    if (!Number.isFinite(numericUserId) || numericUserId <= 0) {
+      return false;
+    }
+
+    try {
+      const res = await callTelegramJson<TelegramChatMemberPayload>(
+        "getChatMember",
+        {
+          chat_id: chatId,
+          user_id: numericUserId,
+        }
+      );
+
+      if (!res.ok || !res.result) {
+        liveAdminRoleCache.set(cacheKey, {
+          role: null,
+          expiresAt: Date.now() + LIVE_ADMIN_CACHE_TTL_MS,
+        });
+        await db
+          .delete(clubAdmins)
+          .where(
+            and(
+              eq(clubAdmins.chatId, chatId),
+              eq(clubAdmins.telegramId, telegramId)
+            )
+          );
+        return false;
+      }
+
+      const role = resolveClubAdminRole(res.result);
+      liveAdminRoleCache.set(cacheKey, {
+        role,
+        expiresAt: Date.now() + LIVE_ADMIN_CACHE_TTL_MS,
+      });
+
+      if (role) {
+        await upsertTelegramUser(res.result.user);
+        await db
+          .insert(clubAdmins)
+          .values({ chatId, telegramId, role })
+          .onConflictDoUpdate({
+            target: [clubAdmins.chatId, clubAdmins.telegramId],
+            set: { role },
+          });
+        if (role === "owner") {
+          await db
+            .update(clubs)
+            .set({ ownerTelegramId: telegramId, updatedAt: new Date() })
+            .where(eq(clubs.chatId, chatId));
+        }
+        return true;
+      }
+
+      await db
+        .delete(clubAdmins)
+        .where(
+          and(
+            eq(clubAdmins.chatId, chatId),
+            eq(clubAdmins.telegramId, telegramId)
+          )
+        );
+      return false;
+    } catch (err) {
+      console.warn(
+        `[TelegramBot] verifyLiveClubManager transient error for chat ${chatId}, user ${telegramId}:`,
+        err instanceof Error ? err.message : err
+      );
+      return checkLocalDbFallback();
+    }
+  },
+
+  /**
+   * Verifies that @ExtraPawnTeleBot itself still holds administrator status
+   * with `can_manage_topics` and `can_delete_messages` in `chatId`.
+   */
+  async verifyBotHasClubPermissions(
+    chatId: string
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!env.TELEGRAM_BOT_TOKEN) {
+      return { ok: true };
+    }
+    const botUserId = getBotTelegramUserId();
+    if (!botUserId) {
+      return { ok: true };
+    }
+
+    try {
+      const res = await callTelegramJson<TelegramChatMemberPayload>(
+        "getChatMember",
+        {
+          chat_id: chatId,
+          user_id: botUserId,
+        }
+      );
+
+      if (!res.ok || !res.result) {
+        return {
+          ok: false,
+          reason:
+            "Бот @ExtraPawnTeleBot отсутствует в супергруппе или не имеет доступа к чату.",
+        };
+      }
+
+      const m = res.result;
+      if (m.status !== "administrator") {
+        return {
+          ok: false,
+          reason:
+            "У бота @ExtraPawnTeleBot сняты права администратора в супергруппе. Выдайте боту права администратора в настройках группы Telegram.",
+        };
+      }
+
+      const missing: string[] = [];
+      if (!m.can_manage_topics) {
+        missing.push("«Управление темами» (Manage Topics)");
+      }
+      if (!m.can_delete_messages) {
+        missing.push("«Удаление сообщений» (Delete Messages)");
+      }
+
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          reason: `У бота @ExtraPawnTeleBot в супергруппе отключены обязательные права: ${missing.join(", ")}. Включите их в настройках группы Telegram.`,
+        };
+      }
+
+      return { ok: true };
+    } catch {
+      // Do not block on transient network hiccup to Telegram
+      return { ok: true };
+    }
+  },
+
+  /**
+   * Handles real-time `chat_member` updates in connected supergroups when any member
+   * is promoted, demoted, has `can_manage_topics` toggled, or leaves/is kicked.
+   */
+  async handleChatMemberUpdate(
+    update: NonNullable<TelegramUpdate["chat_member"]>
+  ): Promise<void> {
+    if (update.chat.type !== "supergroup") return;
+    const targetUser = update.new_chat_member?.user;
+    if (!targetUser || targetUser.is_bot) return;
+
+    const chatId = String(update.chat.id);
+    const targetTelegramId = String(targetUser.id);
+    invalidateClubLiveAdminCache(chatId, targetTelegramId);
+
+    const [club] = await db
+      .select({
+        chatId: clubs.chatId,
+        status: clubs.status,
+        ownerTelegramId: clubs.ownerTelegramId,
+      })
+      .from(clubs)
+      .where(eq(clubs.chatId, chatId))
+      .limit(1);
+
+    if (!club || club.status === "blocked" || club.status === "bot_removed") {
+      return;
+    }
+
+    const role = resolveClubAdminRole(update.new_chat_member);
+    liveAdminRoleCache.set(`${chatId}:${targetTelegramId}`, {
+      role,
+      expiresAt: Date.now() + LIVE_ADMIN_CACHE_TTL_MS,
+    });
+
+    if (role) {
+      await upsertTelegramUser(targetUser);
+      await db
+        .insert(clubAdmins)
+        .values({
+          chatId,
+          telegramId: targetTelegramId,
+          role,
+        })
+        .onConflictDoUpdate({
+          target: [clubAdmins.chatId, clubAdmins.telegramId],
+          set: { role },
+        });
+
+      if (role === "owner" && club.ownerTelegramId !== targetTelegramId) {
+        await db
+          .update(clubs)
+          .set({ ownerTelegramId: targetTelegramId, updatedAt: new Date() })
+          .where(eq(clubs.chatId, chatId));
+      }
+      return;
+    }
+
+    await db
+      .delete(clubAdmins)
+      .where(
+        and(
+          eq(clubAdmins.chatId, chatId),
+          eq(clubAdmins.telegramId, targetTelegramId)
+        )
+      );
+  },
+
+  /**
+   * Handles `my_chat_member` updates when @ExtraPawnTeleBot is added, removed/kicked,
+   * or has its administrator privileges modified in a group.
    */
   async handleMyChatMemberUpdate(
     update: NonNullable<TelegramUpdate["my_chat_member"]>
@@ -1024,25 +1638,47 @@ export const telegramBotService = {
     const chatId = String(update.chat.id);
     const status = update.new_chat_member.status;
 
-    if (status === "left" || status === "kicked") {
-      await db
-        .update(clubs)
-        .set({ status: "bot_removed", updatedAt: new Date() })
-        .where(and(eq(clubs.chatId, chatId), ne(clubs.status, "blocked")));
-      return;
-    }
-
-    if (status !== "administrator" && status !== "member") {
-      return;
-    }
-
-    // Check if club is blocked by SuperAdmin
     const [existingClub] = await db
       .select()
       .from(clubs)
       .where(eq(clubs.chatId, chatId))
       .limit(1);
 
+    // 1. Bot removed or kicked from chat
+    if (status === "left" || status === "kicked") {
+      const wasIntentionalLeave = consumeBotInitiatedLeave(chatId);
+      invalidateClubLiveAdminCache(chatId);
+
+      if (existingClub && existingClub.status !== "blocked") {
+        await db
+          .update(clubs)
+          .set({
+            status: "bot_removed",
+            isActive: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(clubs.chatId, chatId));
+
+        await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
+
+        if (!wasIntentionalLeave) {
+          await notifySuperadminBotIncident({
+            kind: "bot_removed",
+            chatId,
+            clubTitle: update.chat.title || existingClub.title,
+            clubUsername: update.chat.username ?? existingClub.username,
+            detail:
+              status === "kicked"
+                ? "Бот заблокирован / исключён из супергруппы (status: kicked)"
+                : "Бот удалён из супергруппы (status: left)",
+            actor: update.from,
+          });
+        }
+      }
+      return;
+    }
+
+    // 2. Blocked club blacklist check
     if (existingClub?.status === "blocked") {
       await this.sendBlockedClubNoticeAndLeave(
         chatId,
@@ -1052,10 +1688,7 @@ export const telegramBotService = {
       return;
     }
 
-    const fromId = String(update.from.id);
-    const isSuperadminOwner = fromId === env.SUPERADMIN_TELEGRAM_ID;
-
-    // 1. Must be a supergroup
+    // 3. Must be a supergroup
     if (update.chat.type !== "supergroup") {
       await this.leaveClubChat(
         chatId,
@@ -1064,49 +1697,136 @@ export const telegramBotService = {
       return;
     }
 
-    // 2. Check member count >= 30 (unless SuperAdmin)
+    // 4. Verify bot's own administrator permissions (`can_manage_topics` & `can_delete_messages`)
+    const isAdminStatus = status === "administrator";
+    const hasManageTopics = Boolean(update.new_chat_member.can_manage_topics);
+    const hasDeleteMessages = Boolean(
+      update.new_chat_member.can_delete_messages
+    );
+    const botHasRequiredRights =
+      isAdminStatus && hasManageTopics && hasDeleteMessages;
+
+    if (!botHasRequiredRights) {
+      // Brand-new onboarding without required admin rights -> instruct and leave cleanly
+      if (!existingClub) {
+        await this.leaveClubChat(
+          chatId,
+          "⚠️ Пожалуйста, выдайте @ExtraPawnTeleBot права администратора «Управление темами» (Manage Topics) и «Удаление сообщений» (Delete Messages) в супергруппе с включёнными Темами, затем добавьте бота снова."
+        );
+        return;
+      }
+
+      // Already registered club had bot's admin rights stripped -> pause club, preserve data, alert SuperAdmin!
+      const missingDescriptions: string[] = [];
+      if (!isAdminStatus) {
+        missingDescriptions.push(
+          `Сняты права администратора у бота (текущий статус: ${status})`
+        );
+      } else {
+        if (!hasManageTopics) {
+          missingDescriptions.push(
+            "Отключено право «Управление темами» (can_manage_topics)"
+          );
+        }
+        if (!hasDeleteMessages) {
+          missingDescriptions.push(
+            "Отключено право «Удаление сообщений» (can_delete_messages)"
+          );
+        }
+      }
+
+      await db
+        .update(clubs)
+        .set({
+          status: "paused",
+          isActive: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(clubs.chatId, chatId));
+
+      await notifySuperadminBotIncident({
+        kind: "rights_revoked",
+        chatId,
+        clubTitle: update.chat.title || existingClub.title,
+        clubUsername: update.chat.username ?? existingClub.username,
+        detail: missingDescriptions.join("; "),
+        actor: update.from,
+      });
+      return;
+    }
+
+    const fromId = String(update.from.id);
+    const isSuperadminActor = fromId === env.SUPERADMIN_TELEGRAM_ID;
+    const isOnboardingOrReconnect =
+      !existingClub ||
+      existingClub.status === "bot_removed" ||
+      !existingClub.topicThreadId;
+
+    // 5. Fetch member count
     const countRes = await callTelegramJson<number>("getChatMemberCount", {
       chat_id: chatId,
     });
-    const memberCount = countRes.result ?? 0;
+    const memberCount = countRes.result ?? existingClub?.memberCount ?? 0;
 
-    if (!isSuperadminOwner && memberCount < 30) {
-      await this.leaveClubChat(
-        chatId,
-        `⚠️ Для подключения @ExtraPawnTeleBot в супергруппе должно быть минимум 30 участников (сейчас: ${memberCount}). Добавьте бота повторно, когда клуб вырастет!`
-      );
-      return;
-    }
-
-    // 3. Check inviter is creator or administrator
-    const memberInfoRes = await callTelegramJson<{ status: string }>(
-      "getChatMember",
-      {
-        chat_id: chatId,
-        user_id: update.from.id,
+    if (isOnboardingOrReconnect) {
+      if (!isSuperadminActor && memberCount < 30) {
+        await this.leaveClubChat(
+          chatId,
+          `⚠️ Для подключения @ExtraPawnTeleBot в супергруппе должно быть минимум 30 участников (сейчас: ${memberCount}). Добавьте бота повторно, когда клуб вырастет!`
+        );
+        return;
       }
-    );
-    const inviterRole = memberInfoRes.result?.status || "";
-    if (
-      !isSuperadminOwner &&
-      inviterRole !== "creator" &&
-      inviterRole !== "administrator"
-    ) {
-      await this.leaveClubChat(
-        chatId,
-        "⚠️ Подключить @ExtraPawnTeleBot может только владелец или администратор супергруппы."
+
+      // 6. Inviter must be `creator` or `administrator` with `can_manage_topics === true` (or SuperAdmin)
+      const memberInfoRes = await callTelegramJson<TelegramChatMemberPayload>(
+        "getChatMember",
+        {
+          chat_id: chatId,
+          user_id: update.from.id,
+        }
       );
-      return;
+      const inviterRole = resolveClubAdminRole(memberInfoRes.result);
+      if (!isSuperadminActor && !inviterRole) {
+        await this.leaveClubChat(
+          chatId,
+          "⚠️ Подключить @ExtraPawnTeleBot может только владелец супергруппы или администратор с правом «Управление темами» (Manage Topics)."
+        );
+        return;
+      }
     }
 
-    // 3.5 Enforce max 2 clubs per non-superadmin user
-    if (!isSuperadminOwner) {
+    // 7. Inspect chat administrators to identify real `creator` (if non-bot) before checking club limit
+    const adminsRes = await callTelegramJson<TelegramChatMemberPayload[]>(
+      "getChatAdministrators",
+      { chat_id: chatId }
+    );
+    const creatorMember = Array.isArray(adminsRes.result)
+      ? adminsRes.result.find(
+          (m) => m.status === "creator" && !m.user?.is_bot
+        )
+      : undefined;
+
+    await upsertTelegramUser(update.from);
+    if (creatorMember) {
+      await upsertTelegramUser(creatorMember.user);
+    }
+
+    const effectiveOwnerId = creatorMember
+      ? String(creatorMember.user.id)
+      : existingClub?.ownerTelegramId || fromId;
+
+    // 7.5 Enforce max 2 owned clubs per non-superadmin owner on onboarding / reconnect
+    if (
+      isOnboardingOrReconnect &&
+      !isSuperadminActor &&
+      effectiveOwnerId !== env.SUPERADMIN_TELEGRAM_ID
+    ) {
       const ownedClubs = await db
         .select({ chatId: clubs.chatId })
         .from(clubs)
         .where(
           and(
-            eq(clubs.ownerTelegramId, fromId),
+            eq(clubs.ownerTelegramId, effectiveOwnerId),
             ne(clubs.status, "bot_removed"),
             ne(clubs.chatId, chatId)
           )
@@ -1114,16 +1834,16 @@ export const telegramBotService = {
       if (ownedClubs.length >= MAX_OWNED_CLUBS_PER_USER) {
         await this.leaveClubChat(
           chatId,
-          `⚠️ Достигнут лимит: к одному аккаунту можно подключить не более ${MAX_OWNED_CLUBS_PER_USER} шахматных клубов в ExtraPawn. Отключите бота в одной из предыдущих групп, чтобы подключить новую.`
+          `⚠️ Достигнут лимит: к одному аккаунту владельца можно подключить не более ${MAX_OWNED_CLUBS_PER_USER} шахматных клубов в ExtraPawn.`
         );
         return;
       }
     }
 
-    // 4. Create Forum Topic "ExtraPawnTeleBot" (or reuse existing thread)
+    // 8. Ensure Forum Topic "ExtraPawnTeleBot" exists
     let topicThreadId = existingClub?.topicThreadId || 0;
 
-    if (!topicThreadId) {
+    const createBotForumTopic = async (): Promise<number | null> => {
       const topicRes = await callTelegramJson<{ message_thread_id: number }>(
         "createForumTopic",
         {
@@ -1131,48 +1851,70 @@ export const telegramBotService = {
           name: "ExtraPawnTeleBot",
         }
       );
-
       if (!topicRes.ok || !topicRes.result?.message_thread_id) {
-        await this.leaveClubChat(
-          chatId,
-          "⚠️ Пожалуйста, включите «Темы» (Topics) в настройках вашей супергруппы и выдайте @ExtraPawnTeleBot право «Управление темами» (Manage Topics), затем добавьте бота снова."
-        );
+        return null;
+      }
+      return topicRes.result.message_thread_id;
+    };
+
+    if (!topicThreadId) {
+      const createdThreadId = await createBotForumTopic();
+      if (!createdThreadId) {
+        if (!existingClub) {
+          await this.leaveClubChat(
+            chatId,
+            "⚠️ Пожалуйста, включите «Темы» (Topics) в настройках вашей супергруппы и выдайте @ExtraPawnTeleBot право «Управление темами» (Manage Topics), затем добавьте бота снова."
+          );
+        }
         return;
       }
-
-      topicThreadId = topicRes.result.message_thread_id;
+      topicThreadId = createdThreadId;
     }
 
-    // 5. Upsert owner user & club
-    await db
-      .insert(users)
-      .values({
-        telegramId: fromId,
-        username: update.from.username || null,
-        firstName: update.from.first_name || "Admin",
-        lastName: update.from.last_name || null,
-        languageCode: update.from.language_code?.startsWith("en") ? "en" : "ru",
-        isSuperadmin: fromId === env.SUPERADMIN_TELEGRAM_ID,
-      })
-      .onConflictDoUpdate({
-        target: users.telegramId,
-        set: {
-          username: update.from.username || null,
-          firstName: update.from.first_name || "Admin",
-          updatedAt: new Date(),
-        },
+    // 9. If reconnecting, verify existing topic still exists before saving; recreate if it was deleted
+    let welcomeSent = false;
+    if (isOnboardingOrReconnect) {
+      const welcomeText = `♟ <b>ExtraPawn Challenge Bot подключен!</b>\nВсе шахматные челленджи и таблицы рекордов клуба будут публиковаться в этой теме.\nНастроить расписание, дисциплины и сложность могут владелец группы и администраторы с правом «Управление темами» в Mini App.`;
+      const welcomeRes = await callTelegramJson("sendMessage", {
+        chat_id: chatId,
+        message_thread_id: topicThreadId,
+        parse_mode: "HTML",
+        text: welcomeText,
       });
 
+      if (
+        !welcomeRes.ok &&
+        welcomeRes.description &&
+        (welcomeRes.description.toLowerCase().includes("message thread not found") ||
+          welcomeRes.description.toLowerCase().includes("topic_deleted"))
+      ) {
+        const recreatedThreadId = await createBotForumTopic();
+        if (recreatedThreadId) {
+          topicThreadId = recreatedThreadId;
+          const retryWelcome = await callTelegramJson("sendMessage", {
+            chat_id: chatId,
+            message_thread_id: topicThreadId,
+            parse_mode: "HTML",
+            text: welcomeText,
+          });
+          welcomeSent = retryWelcome.ok;
+        }
+      } else {
+        welcomeSent = welcomeRes.ok;
+      }
+    }
+
+    // 10. Upsert club & synchronize all `creator` + `can_manage_topics` admins
     await db
       .insert(clubs)
       .values({
         chatId,
-        title: update.chat.title || "Chess Club",
+        title: update.chat.title || existingClub?.title || "Chess Club",
         username: update.chat.username || null,
         inviteLink: update.chat.username
           ? `https://t.me/${update.chat.username}/${topicThreadId}`
           : null,
-        ownerTelegramId: fromId,
+        ownerTelegramId: effectiveOwnerId,
         topicThreadId,
         memberCount,
         status: "active",
@@ -1185,8 +1927,12 @@ export const telegramBotService = {
       .onConflictDoUpdate({
         target: clubs.chatId,
         set: {
-          title: update.chat.title || "Chess Club",
+          title: update.chat.title || existingClub?.title || "Chess Club",
           username: update.chat.username || null,
+          inviteLink: update.chat.username
+            ? `https://t.me/${update.chat.username}/${topicThreadId}`
+            : existingClub?.inviteLink ?? null,
+          ownerTelegramId: effectiveOwnerId,
           topicThreadId,
           memberCount,
           status: "active",
@@ -1196,34 +1942,17 @@ export const telegramBotService = {
       });
 
     await this.clearAutoPause(chatId);
+    await this.syncClubAdminsFromTelegram(chatId);
 
-    await db
-      .insert(clubAdmins)
-      .values({
-        chatId,
-        telegramId: fromId,
-        role: inviterRole === "creator" ? "owner" : "admin",
-      })
-      .onConflictDoUpdate({
-        target: [clubAdmins.chatId, clubAdmins.telegramId],
-        set: { role: inviterRole === "creator" ? "owner" : "admin" },
-      });
-
-    // 6. Send confirmation message in topic & publish initial challenge
-    await callTelegramJson("sendMessage", {
-      chat_id: chatId,
-      message_thread_id: topicThreadId,
-      parse_mode: "HTML",
-      text: `♟ <b>ExtraPawn Challenge Bot подключен!</b>\nВсе шахматные челленджи и таблицы рекордов клуба будут публиковаться в этой теме.\nНастроить расписание, дисциплины и сложность можно в личном кабинете Mini App.`,
-    });
-
-    try {
-      await this.publishChallengeToClub(chatId);
-    } catch (err) {
-      console.error(
-        `[TelegramBot] Initial challenge publish failed for ${chatId}:`,
-        err
-      );
+    if (isOnboardingOrReconnect && welcomeSent) {
+      try {
+        await this.publishChallengeToClub(chatId);
+      } catch (err) {
+        console.error(
+          `[TelegramBot] Initial challenge publish failed for ${chatId}:`,
+          err
+        );
+      }
     }
   },
 
@@ -1372,7 +2101,7 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
     const res = await callTelegramJson<TelegramUpdate[]>("getUpdates", {
       offset: lastUpdateOffset,
       timeout: 15,
-      allowed_updates: ["message", "my_chat_member"],
+      allowed_updates: ["message", "my_chat_member", "chat_member"],
     });
     if (!res.ok || !res.result) return;
 
@@ -1380,6 +2109,8 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
       lastUpdateOffset = Math.max(lastUpdateOffset, upd.update_id + 1);
       if (upd.my_chat_member) {
         await telegramBotService.handleMyChatMemberUpdate(upd.my_chat_member);
+      } else if (upd.chat_member) {
+        await telegramBotService.handleChatMemberUpdate(upd.chat_member);
       } else if (
         upd.message?.chat.type === "private" &&
         upd.message.text?.startsWith("/start")
@@ -1480,6 +2211,47 @@ async function notifyAutoPauseReplyOnce(
 }
 
 let lastSevenDayCleanupAt = 0;
+let lastClubAdminsReconcileAt = 0;
+
+async function reconcileConnectedClubsAdminsPeriodically(): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN) return;
+  const nowMs = Date.now();
+  const thirtyMinutesMs = 30 * 60 * 1000;
+  if (nowMs - lastClubAdminsReconcileAt < thirtyMinutesMs) return;
+  lastClubAdminsReconcileAt = nowMs;
+
+  try {
+    const connectedClubs = await db
+      .select()
+      .from(clubs)
+      .where(
+        and(ne(clubs.status, "blocked"), ne(clubs.status, "bot_removed"))
+      );
+
+    for (const club of connectedClubs) {
+      if (!club.chatId.startsWith("-100")) continue;
+      try {
+        await telegramBotService.syncClubAdminsFromTelegram(club.chatId);
+        const countRes = await callTelegramJson<number>("getChatMemberCount", {
+          chat_id: club.chatId,
+        });
+        if (countRes.ok && typeof countRes.result === "number") {
+          await db
+            .update(clubs)
+            .set({ memberCount: countRes.result })
+            .where(eq(clubs.chatId, club.chatId));
+        }
+      } catch (err) {
+        console.warn(
+          `[TelegramBot] Periodic admin sync warning for club ${club.chatId}:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[TelegramBot] Periodic club admin reconcile error:", err);
+  }
+}
 
 async function purgeExpiredSevenDayRecords(): Promise<void> {
   const nowMs = Date.now();
@@ -1503,6 +2275,7 @@ async function purgeExpiredSevenDayRecords(): Promise<void> {
 async function runScheduledClubsTick(): Promise<void> {
   await purgeExpiredSevenDayRecords();
   if (!env.TELEGRAM_BOT_TOKEN) return;
+  await reconcileConnectedClubsAdminsPeriodically();
   try {
     const activeClubs = await db
       .select()

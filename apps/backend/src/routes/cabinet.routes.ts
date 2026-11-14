@@ -88,10 +88,8 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
       (c) => c.status !== "bot_removed" && c.status !== "blocked"
     );
     const myClubs = visibleClubs.filter((c) => c.is_admin);
-    const ownedClubsCount = visibleClubs.filter((c) =>
-      viewer.isSuperadmin
-        ? c.owner_telegram_id === viewer.telegramId
-        : c.is_admin
+    const ownedClubsCount = visibleClubs.filter(
+      (c) => c.owner_telegram_id === viewer.telegramId
     ).length;
 
     const response: UserCabinetDTO = {

@@ -133,9 +133,9 @@ const DICT = {
     clubs_rule_2:
       "В теме бота публикуются шахматные челленджи, рекорды клуба и редкие анонсы проекта ExtraPawn.",
     clubs_rule_3:
-      "Вы в любой момент можете поставить бота на паузу или полностью удалить все данные клуба из нашей базы одной кнопкой в настройках.",
+      "Управлять настройками и паузой могут владелец супергруппы и администраторы с правом «Управление темами» (Manage Topics).",
     clubs_terms_prefix:
-      "Я администратор супергруппы, прочитал(а) и согласен(на) с",
+      "Я владелец или администратор супергруппы (с правом «Управление темами»), прочитал(а) и согласен(на) с",
     clubs_terms_link: "Условиями использования",
     clubs_terms_mid: "и",
     clubs_privacy_link: "Политикой конфиденциальности",
@@ -174,7 +174,7 @@ const DICT = {
     about_sec2_p2:
       "• Минимум данных (Privacy by Design): хранятся только публичные метаданные профиля Telegram (ID, имя, @username) и попытки решения задач.",
     about_sec2_p3:
-      "• Удаление в 1 клик: администратор любого клуба может в любой момент отключить бота и безвозвратно удалить все данные клуба в настройках. Личную статистику можно удалить по запросу.",
+      "• Контроль и удаление данных: владелец группы и администраторы с правом «Управление темами» могут в любой момент поставить бота на паузу; полное удаление данных клуба или личной статистики выполняется по запросу к разработчику (@ProfessorMozer).",
     about_sec3_title: "⚡ Лицензии и благодарности (GPLv3)",
     about_sec3_p1:
       "Этот проект лицензирован под GNU General Public License v3.0, что способствует прозрачности и росту сообщества. В соответствии с GPLv3 наш исходный код полностью открыт и доступен для блага мирового шахматного сообщества.",
@@ -327,9 +327,9 @@ const DICT = {
     clubs_rule_2:
       "Chess challenges, club leaderboards, and occasional ExtraPawn project announcements are posted in the bot topic.",
     clubs_rule_3:
-      "You can pause the bot at any time or permanently delete all club data from our database with one click in settings.",
+      "Bot settings and pause controls are available to the supergroup owner and administrators with the 'Manage Topics' permission.",
     clubs_terms_prefix:
-      "I am an admin of the supergroup and have read and agree to the",
+      "I am the owner or an admin (with 'Manage Topics') of the supergroup and have read and agree to the",
     clubs_terms_link: "Terms of Use",
     clubs_terms_mid: "and",
     clubs_privacy_link: "Privacy Policy",
@@ -368,7 +368,7 @@ const DICT = {
     about_sec2_p2:
       "• Minimal Data (Privacy by Design): we only store public Telegram profile metadata (ID, name, @username) and puzzle attempt results.",
     about_sec2_p3:
-      "• 1-Click Deletion: any club admin can disconnect the bot and permanently delete all club data in settings at any time. Personal stats can be deleted upon request.",
+      "• Data Control & Deletion: the group owner and admins with 'Manage Topics' can pause the bot at any time; full deletion of club data or personal stats is available upon request to the developer (@ProfessorMozer).",
     about_sec3_title: "⚡ Licenses & Credits (GPLv3)",
     about_sec3_p1:
       "This project is licensed under the GNU General Public License v3.0, promoting transparency and community growth. In accordance with GPLv3, our source code is completely open and available for the benefit of the global chess community.",
@@ -521,9 +521,9 @@ const DICT = {
     clubs_rule_2:
       "Im Bot-Thema werden Schach-Challenges, Klub-Rekorde und gelegentliche Ankündigungen des Projekts ExtraPawn veröffentlicht.",
     clubs_rule_3:
-      "Sie können den Bot jederzeit pausieren oder alle Klubdaten mit einem Klick in den Einstellungen vollständig aus unserer Datenbank löschen.",
+      "Die Bot-Einstellungen und Pausensteuerung stehen dem Eigentümer der Supergruppe sowie Administratoren mit dem Recht „Themen verwalten“ (Manage Topics) zur Verfügung.",
     clubs_terms_prefix:
-      "Ich bin Administrator der Supergruppe, habe die",
+      "Ich bin Eigentümer oder Administrator (mit „Themen verwalten“) der Supergruppe, habe die",
     clubs_terms_link: "Nutzungsbedingungen",
     clubs_terms_mid: "und die",
     clubs_privacy_link: "Datenschutzerklärung",
@@ -562,7 +562,7 @@ const DICT = {
     about_sec2_p2:
       "• Minimale Daten (Privacy by Design): Gespeichert werden nur öffentliche Telegram-Profildaten (ID, Name, @username) und Lösungsversuche.",
     about_sec2_p3:
-      "• 1-Klick-Löschung: Klub-Admins können den Bot jederzeit trennen und alle Klubdaten in den Einstellungen unwiderruflich löschen. Persönliche Daten werden auf Anfrage gelöscht.",
+      "• Datenkontrolle & Löschung: Der Gruppeneigentümer und Admins mit „Themen verwalten“ können den Bot jederzeit pausieren; die vollständige Löschung von Klubdaten oder persönlichen Daten erfolgt auf Anfrage beim Entwickler (@ProfessorMozer).",
     about_sec3_title: "⚡ Lizenzen & Danksagung (GPLv3)",
     about_sec3_p1:
       "Dieses Projekt ist unter der GNU General Public License v3.0 lizenziert, was Transparenz und das Wachstum der Community fördert. Gemäß GPLv3 ist unser Quellcode vollständig offen und zum Nutzen der weltweiten Schachgemeinschaft zugänglich.",

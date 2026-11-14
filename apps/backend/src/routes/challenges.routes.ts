@@ -155,7 +155,6 @@ async function getViewerTodayActiveChallenges(params: {
       c.status !== "blocked" &&
       c.status !== "bot_removed" &&
       (params.isSuperadmin ||
-        c.ownerTelegramId === params.viewerTelegramId ||
         adminChatIds.has(c.chatId) ||
         participatedChatIds.has(c.chatId))
   );

@@ -108,9 +108,7 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         );
         const avgPts = roundPoints(totalPts / 4);
         const isAdmin =
-          req.user.isSuperadmin ||
-          c.ownerTelegramId === viewerId ||
-          adminChatIds.has(c.chatId);
+          req.user.isSuperadmin || adminChatIds.has(c.chatId);
         const isMember = isAdmin || participatedChatIds.has(c.chatId);
         const isActive = Boolean(c.isActive) && c.status === "active";
 
@@ -170,6 +168,14 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Club not found" });
       }
 
+      if (!req.user.isSuperadmin && row.status !== "blocked" && row.status !== "bot_removed") {
+        await telegramBotService.verifyLiveClubManager(
+          row.chatId,
+          req.user.telegramId,
+          { forceFresh: false }
+        );
+      }
+
       return mapClubRowToSummaryDTO(
         row,
         req.user.telegramId,
@@ -195,23 +201,40 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Club not found" });
       }
 
-      const dtoBefore = await mapClubRowToSummaryDTO(
-        row,
-        req.user.telegramId,
-        req.user.isSuperadmin
-      );
-      if (!dtoBefore.is_admin) {
-        return reply
-          .code(403)
-          .send({ error: "Forbidden: You are not an admin of this club" });
+      const canManage =
+        req.user.isSuperadmin ||
+        (await telegramBotService.verifyLiveClubManager(
+          row.chatId,
+          req.user.telegramId,
+          { forceFresh: true }
+        ));
+      if (!canManage) {
+        return reply.code(403).send({
+          error:
+            "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+        });
       }
       if (row.status === "blocked" && !req.user.isSuperadmin) {
         return reply
           .code(403)
           .send({ error: "This club has been blocked by SuperAdmin" });
       }
+      if (row.status === "bot_removed") {
+        return reply.code(403).send({
+          error:
+            "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+        });
+      }
 
       const nextIsActive = Boolean(req.body.is_active);
+      if (nextIsActive) {
+        const botRights = await telegramBotService.verifyBotHasClubPermissions(
+          row.chatId
+        );
+        if (!botRights.ok) {
+          return reply.code(403).send({ error: botRights.reason });
+        }
+      }
       const nextStatus =
         row.status === "blocked" && !req.user.isSuperadmin
           ? "blocked"
@@ -268,22 +291,31 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Club not found" });
       }
 
-      const dtoBefore = await mapClubRowToSummaryDTO(
-        row,
-        req.user.telegramId,
-        req.user.isSuperadmin
-      );
+      const canManage =
+        req.user.isSuperadmin ||
+        (await telegramBotService.verifyLiveClubManager(
+          row.chatId,
+          req.user.telegramId,
+          { forceFresh: true }
+        ));
 
-      if (!dtoBefore.is_admin) {
-        return reply
-          .code(403)
-          .send({ error: "Forbidden: You are not an admin of this club" });
+      if (!canManage) {
+        return reply.code(403).send({
+          error:
+            "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+        });
       }
 
       if (row.status === "blocked" && !req.user.isSuperadmin) {
         return reply
           .code(403)
           .send({ error: "This club has been blocked by SuperAdmin" });
+      }
+      if (row.status === "bot_removed") {
+        return reply.code(403).send({
+          error:
+            "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+        });
       }
 
       const body = req.body;
@@ -321,6 +353,14 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         typeof body.is_active === "boolean"
           ? body.is_active
           : Boolean(row.isActive);
+      if (nextIsActive) {
+        const botRights = await telegramBotService.verifyBotHasClubPermissions(
+          row.chatId
+        );
+        if (!botRights.ok) {
+          return reply.code(403).send({ error: botRights.reason });
+        }
+      }
       const nextStatus =
         row.status === "blocked" && !req.user.isSuperadmin
           ? "blocked"
@@ -414,20 +454,36 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Club not found" });
       }
 
-      const dto = await mapClubRowToSummaryDTO(
-        row,
-        req.user.telegramId,
-        req.user.isSuperadmin
-      );
-      if (!dto.is_admin) {
-        return reply
-          .code(403)
-          .send({ error: "Forbidden: Club admin permission required" });
+      const canManage =
+        req.user.isSuperadmin ||
+        (await telegramBotService.verifyLiveClubManager(
+          row.chatId,
+          req.user.telegramId,
+          { forceFresh: true }
+        ));
+      if (!canManage) {
+        return reply.code(403).send({
+          error:
+            "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
+        });
       }
       if (row.status === "blocked") {
         return reply
           .code(403)
           .send({ error: "Cannot publish to a blocked club" });
+      }
+      if (row.status === "bot_removed") {
+        return reply.code(403).send({
+          error:
+            "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
+        });
+      }
+
+      const botRights = await telegramBotService.verifyBotHasClubPermissions(
+        row.chatId
+      );
+      if (!botRights.ok) {
+        return reply.code(403).send({ error: botRights.reason });
       }
 
       const published = await telegramBotService.publishChallengeToClub(
@@ -442,10 +498,10 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Moderator disconnect & purge all club data from PostgreSQL
+  // SuperAdmin ONLY: disconnect & purge all club data from PostgreSQL
   fastify.delete<{ Params: { chatId: string } }>(
     "/clubs/:chatId",
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireSuperadmin] },
     async (req, reply) => {
       const { chatId } = req.params;
       const [row] = await db
@@ -456,17 +512,6 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!row) {
         return reply.code(404).send({ error: "Club not found" });
-      }
-
-      const dto = await mapClubRowToSummaryDTO(
-        row,
-        req.user.telegramId,
-        req.user.isSuperadmin
-      );
-      if (!dto.is_admin) {
-        return reply
-          .code(403)
-          .send({ error: "Forbidden: Club admin permission required" });
       }
 
       await db
