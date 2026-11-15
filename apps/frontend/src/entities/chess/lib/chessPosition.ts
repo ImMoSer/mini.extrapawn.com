@@ -69,6 +69,8 @@ export interface ReplayStepSnapshot {
   uci: string;
   san: string;
   lastMove?: [Key, Key];
+  delayMs?: number;
+  appliedMove?: AppliedMoveResult;
 }
 
 function createChessFromFen(fen: string): Chess {
@@ -171,7 +173,8 @@ export function applyMoveToFen(
 
 export function buildReplayTimeline(
   startFen: string,
-  uciMovesString: string
+  uciMovesString: string,
+  moveTimesMs?: readonly number[] | null
 ): ReplayStepSnapshot[] {
   const timeline: ReplayStepSnapshot[] = [
     {
@@ -191,12 +194,18 @@ export function buildReplayTimeline(
     try {
       const applied = applyMoveToFen(currentFen, uci);
       currentFen = applied.nextFen;
+      const rawDelay = moveTimesMs?.[i];
       timeline.push({
         stepIndex: i + 1,
         fen: currentFen,
         uci: applied.uci,
         san: applied.san,
         lastMove: [applied.from, applied.to],
+        delayMs:
+          typeof rawDelay === "number" && Number.isFinite(rawDelay)
+            ? rawDelay
+            : undefined,
+        appliedMove: applied,
       });
     } catch {
       break;

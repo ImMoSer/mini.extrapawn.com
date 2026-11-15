@@ -98,6 +98,8 @@ const DICT = {
     challenge_coach_btn: "Coach",
     challenge_leaderboard_title: "УЧАСТНИКИ ЧЕЛЛЕНДЖА",
     challenge_replay_moves: "▶ Ходы",
+    challenge_replay_game: "Игра",
+    challenge_replay_fast: "▶▶",
     challenge_replay_active: "Просмотр партии:",
     challenge_exit_replay: "Вернуться к своей доске",
     records_club_title: "РЕКОРДЫ ЗА 7 ДНЕЙ",
@@ -116,6 +118,11 @@ const DICT = {
     settings_slot_difficulty: "Сложность",
     settings_slot_focus: "Тема / Фокус",
     settings_bot_language: "Язык постов бота в Telegram",
+    settings_auto_delete_label: "Автоудаление уведомлений в чате",
+    settings_auto_delete_hint:
+      "Через сколько удалять ответы бота о решениях и настройках (сообщение авто-паузы всегда удаляется сразу после решения).",
+    settings_auto_delete_off: "Нет",
+    settings_sec_short: "с",
     settings_club_timezone: "Часовой пояс клуба",
     settings_club_timezone_hint:
       "Расписание публикаций работает по часовому поясу клуба (по умолчанию Europe/Berlin), независимо от того, где находятся модераторы.",
@@ -318,6 +325,8 @@ const DICT = {
     challenge_coach_btn: "Coach",
     challenge_leaderboard_title: "CHALLENGE LEADERBOARD",
     challenge_replay_moves: "▶ Moves",
+    challenge_replay_game: "Game",
+    challenge_replay_fast: "▶▶",
     challenge_replay_active: "Replaying moves of:",
     challenge_exit_replay: "Back to my board",
     records_club_title: "RECORDS (7 DAYS)",
@@ -336,6 +345,11 @@ const DICT = {
     settings_slot_difficulty: "Difficulty",
     settings_slot_focus: "Theme / Focus",
     settings_bot_language: "Bot Language in Telegram",
+    settings_auto_delete_label: "Auto-delete chat notifications",
+    settings_auto_delete_hint:
+      "Delay before deleting bot solve & settings replies (auto-pause notices are always deleted immediately upon solving).",
+    settings_auto_delete_off: "Off",
+    settings_sec_short: "s",
     settings_club_timezone: "Club Timezone",
     settings_club_timezone_hint:
       "Scheduled challenges run in the club's timezone (default Europe/Berlin), regardless of where individual moderators live.",
@@ -538,6 +552,8 @@ const DICT = {
     challenge_coach_btn: "Coach",
     challenge_leaderboard_title: "CHALLENGE-TEILNEHMER",
     challenge_replay_moves: "▶ Züge",
+    challenge_replay_game: "Game",
+    challenge_replay_fast: "▶▶",
     challenge_replay_active: "Partie von:",
     challenge_exit_replay: "Zurück zum eigenen Brett",
     records_club_title: "REKORDE (7 TAGE)",
@@ -556,6 +572,11 @@ const DICT = {
     settings_slot_difficulty: "Schwierigkeit",
     settings_slot_focus: "Thema / Fokus",
     settings_bot_language: "Sprache der Bot-Posts in Telegram",
+    settings_auto_delete_label: "Auto-Löschen von Chat-Hinweisen",
+    settings_auto_delete_hint:
+      "Zeit bis zum Löschen von Lösungs- und Setup-Hinweisen im Chat (Auto-Pause-Hinweise werden sofort nach Lösung gelöscht).",
+    settings_auto_delete_off: "Aus",
+    settings_sec_short: "s",
     settings_club_timezone: "Zeitzone des Klubs",
     settings_club_timezone_hint:
       "Der Zeitplan läuft in der Zeitzone des Klubs (Standard Europe/Berlin), unabhängig vom Wohnort der Moderatoren.",

@@ -7,6 +7,7 @@ import ClubRecordsPage from "@/pages/club-records/ClubRecordsPage.vue";
 import ClubSettingsPage from "@/pages/club-settings/ClubSettingsPage.vue";
 import GoChallengesPage from "@/pages/go/GoChallengesPage.vue";
 import PuzzleRecordsPage from "@/pages/records/PuzzleRecordsPage.vue";
+import ReplayRedirectPage from "@/pages/replay/ReplayRedirectPage.vue";
 import SuperAdminPage from "@/pages/super-admin/SuperAdminPage.vue";
 
 export const router = createRouter({
@@ -60,6 +61,11 @@ export const router = createRouter({
       path: "/records/:discipline/:puzzleId/:chatId",
       name: "puzzle-records-no-edition",
       component: PuzzleRecordsPage,
+    },
+    {
+      path: "/replay/:attemptId/:speed",
+      name: "replay-redirect",
+      component: ReplayRedirectPage,
     },
     {
       path: "/club-settings/:chatId",

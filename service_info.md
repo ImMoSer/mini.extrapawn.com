@@ -17,7 +17,7 @@
    - **Авторизация:** Исключительно через Telegram WebApp (`Telegram.WebApp.initData` с криптографической проверкой `HMAC-SHA256`), мгновенный вход в 0 кликов.
    - **BOSS платформы (SuperAdmin):** Пользователь с `telegram_id = "5106981885"` имеет эксклюзивный доступ к панели `/super-admin` для мониторинга всех подключённых клубов, блокировки/разблокировки (`blocked` / `active`), принудительного выхода бота из групп и рассылки промо-кампаний.
    - **Дефолтный (родной) клуб:** Супергруппа **EXTRAPAWNCLUB** (`chat_id = "-1002255301933"`, `https://t.me/EXTRAPAWNCLUB/293770`, топик `ExtraPawnTeleBot`, `message_thread_id = 293770`, владелец `5106981885`). Автоматически создаётся при старте бэкенда (`bootstrapDatabase()`).
-   - **Полная автономность от `n8n` и `stockfish_server`:** Бэкенд Mini App самостоятельно управляет ботом `@ExtraPawnTeleBot` (через нативный `fetch` к Telegram Bot API), расписаниями клубов, рендерингом PNG-картинок стартовой позиции (`board.png` через `@resvg/resvg-js`), автоочисткой предыдущих челленджей (`deleteMessage`) и автоудалением уведомлений об успешном решении через 30 секунд.
+   - **Полная автономность от `n8n` и `stockfish_server`:** Бэкенд Mini App самостоятельно управляет ботом `@ExtraPawnTeleBot` (через нативный `fetch` к Telegram Bot API), расписаниями клубов, рендерингом PNG-картинок стартовой позиции (`board.png` через `@resvg/resvg-js`), автоочисткой предыдущих челленджей (`deleteMessage`) и настраиваемым автоудалением уведомлений бота в чате (`0 / 30 / 60 / 180 / 300` с, по умолчанию `60` с).
 
 ---
 
@@ -39,15 +39,21 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── plugins/
 │   │       │   └── telegramAuth.ts           # Проверка HMAC-SHA256 Telegram initData + upsert юзера
 │   │       ├── bot/
-│   │       │   └── telegramBot.service.ts    # Long-polling бот, расписание клубов, публикация и пин
+│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API, deleteMessage, scheduleAutoDeleteMessage
+│   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([Игра | ▶▶]) и настройках
+│   │       │   └── telegramBot.service.ts    # Long-polling бот, расписание клубов, публикация и авто-пауза
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
 │   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и tableservice:5000
+│   │       │   ├── challengeQueries.service.ts # Сборка ChallengeStateDTO, анти-спойлер и списки задач
+│   │       │   ├── challengeState.service.ts # Приём попыток, санитизация ходов/таймингов и сдача
+│   │       │   ├── clubLeaderboard.service.ts# Межклубный лидерборд за 7/30 дней
+│   │       │   ├── clubSettings.service.ts   # Валидация интервалов расписания и ошибок роутов клубов
 │   │       │   └── clubMapper.ts             # Маппинг строки клуба в ClubSummaryDTO
 │   │       └── routes/
 │   │           ├── cabinet.routes.ts         # GET /api/cabinet, PATCH /api/cabinet/language
-│   │           ├── challenges.routes.ts      # Доска, лидерборд задачи/клуба, attempt, surrender
+│   │           ├── challenges.routes.ts      # Доска, лидерборд задачи/клуба, attempt, surrender, attempt-ref
 │   │           ├── clubs.routes.ts           # Межклубный чемпионат /api/clubs/leaderboard, настройки клуба
 │   │           ├── engine.routes.ts          # Прокси ходов бота (/api/engine/move) и таблиц (/api/engine/tablebase)
 │   │           └── superadmin.routes.ts      # Управление клубами и промо-кампаниями (/api/superadmin/*)
@@ -57,12 +63,16 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │       └── src/
 │           ├── app/                          # Инициализация Vue, Pinia, Vue Router + декодер startapp
 │           ├── pages/
-│           │   ├── cabinet/                  # UserCabinetPage.vue (/cabinet)
-│           │   ├── clubs/                    # ClubsLeaderboardPage.vue (/clubs — чемпионат за 30 дней)
+│           │   ├── cabinet/                  # CabinetPage.vue (/cabinet)
+│           │   ├── clubs/                    # ClubsLeaderboardPage.vue (/clubs)
 │           │   ├── challenge/                # ChallengePlayPage.vue (/challenge/...)
-│           │   ├── records/                  # ClubRecordsPage.vue & TaskRecordsPage.vue
-│           │   ├── club-settings/            # ClubSettingsPage.vue (/club-settings/:chatId)
+│           │   ├── replay/                   # ReplayRedirectPage.vue (/replay/:attemptId/:speed)
+│           │   ├── records/                  # PuzzleRecordsPage.vue (/records/...)
+│           │   ├── club-records/             # ClubRecordsPage.vue (/challenge/records/:chatId)
+│           │   ├── club-settings/            # ClubSettingsPage.vue + ui/* (/club-settings/:chatId)
 │           │   └── super-admin/              # SuperAdminPage.vue (/super-admin)
+│           ├── features/
+│           │   └── challenge-play/           # challengeSession.store.ts, challengeEngineFlow.ts, useChallengeTimeline.ts, ui/*
 │           ├── widgets/
 │           │   ├── navigation/               # TopNavBar.vue (навигация + переключатель RU/EN/DE)
 │           │   └── challenge-board/          # InteractiveChessground.vue
@@ -104,13 +114,13 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 1. **`tele_app.users`** (`telegram_id text PRIMARY KEY`):
    - Поля: `username`, `first_name`, `last_name`, `avatar_url`, `language_code` (`'ru' | 'en' | 'de'`), `is_superadmin`, `created_at`, `updated_at`.
 2. **`tele_app.clubs`** (`chat_id text PRIMARY KEY`):
-   - Поля: `title`, `username`, `invite_link`, `owner_telegram_id`, `topic_thread_id`, `member_count`, `language`, `timezone`, `status` (`'active' | 'paused' | 'blocked' | 'bot_removed' | 'below_threshold'`), `blocked_reason`, `is_default`, `schedule_times` (`jsonb`, по умолчанию `["10:00", "18:00"]`), `leaderboard_cron_days` (`integer`, по умолчанию `7`), `filter_disciplines` (`jsonb`), `filter_difficulties` (`jsonb`), `filter_focus_group`, `filter_focus_keys` (`jsonb`), `filter_objective`, `last_published_at`, `last_leaderboard_at`, `terms_accepted_at`, `created_at`, `updated_at`.
+   - Поля: `title`, `username`, `invite_link`, `owner_telegram_id`, `topic_thread_id`, `member_count`, `language`, `timezone`, `auto_delete_seconds` (`integer`, `0 | 30 | 60 | 180 | 300`, по умолчанию `60`), `is_active`, `weekly_schedule` (`jsonb`), `auto_paused`, `auto_pause_challenge_id`, `auto_pause_message_id`, `status` (`'active' | 'paused' | 'blocked' | 'bot_removed' | 'below_threshold'`), `blocked_reason`, `is_default`, `schedule_times` (`jsonb`), `leaderboard_cron_days` (`integer`), `filter_disciplines` (`jsonb`), `filter_difficulties` (`jsonb`), `filter_focus_group`, `filter_focus_keys` (`jsonb`), `filter_objective`, `last_published_at`, `last_leaderboard_at`, `terms_accepted_at`, `created_at`, `updated_at`.
 3. **`tele_app.club_admins`** (`PRIMARY KEY (chat_id, telegram_id)`):
    - Права управления настройками клуба (`role`: `'owner' | 'admin'`). Строго синхронизируется с Telegram: в таблицу попадают **только** владелец супергруппы (`creator` -> `'owner'`) и администраторы с правом `can_manage_topics === true` (`administrator` -> `'admin'`). Синхронизация трёхуровневая: мгновенно по событиям `chat_member`, при подключении/фоновом реконсиле через `getChatAdministrators` (раз в 30 мин) и в реальном времени через `getChatMember` при открытии/сохранении настроек.
 4. **`tele_app.club_challenges`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition)`):
-   - Опубликованные в клубе челленджи (хранит `initial_fen`, `puzzle_fen`, `user_color`, `first_move`, `strategy`, `objective`, `tactical_solution`, `domain`, `category`, `tg_message_id`, `published_at`). Используется для исключения повторов задач в клубе и для отправки реплаев на `tg_message_id`.
+   - Опубликованные в клубе челленджи (хранит `initial_fen`, `puzzle_fen`, `user_color`, `first_move`, `strategy`, `objective`, `bot_engine` (`DEFAULT 'mozero'`), `tactical_solution`, `domain`, `category`, `tg_message_id`, `published_at`). Используется для исключения повторов задач в клубе и для отправки реплаев на `tg_message_id`.
 5. **`tele_app.challenge_attempts`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition, telegram_id)`):
-   - Попытки игроков в разрезе конкретного чата (`chat_id`): `username`, `status` (`'in_progress' | 'solved' | 'surrendered'`), `solved`, `attempts`, `solved_time_ms`, `uci_moves`, `pgn_moves`, `notified_at`, `updated_at`, `completed_at`.
+   - Попытки игроков в разрезе конкретного чата (`chat_id`): `username`, `status` (`'in_progress' | 'solved' | 'surrendered'`), `solved`, `attempts`, `solved_time_ms`, `uci_moves`, `pgn_moves`, `move_times_ms` (`integer[]` — длительности полуходов в мс; для `tactics` история ходов и тайминги в БД не пишутся), `notified_at`, `updated_at`, `completed_at`.
 6. **`tele_app.promo_campaigns`** (`id serial PRIMARY KEY`):
    - Промо-кампании BOSSа для рассылки по темам активных клубов.
 
@@ -162,7 +172,10 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
    - Как только любой участник решает челлендж или сдаётся, флаг `auto_paused` автоматически сбрасывается и расписание продолжается.
 3. **Автоочистка чата при публикации и решении (без `pinChatMessage`):**
    - При публикации нового челленджа (`publishChallengeToClub`) бот рендерит `board.png` (`600x600`), отправляет фото в тему клуба с кнопками `🔥 ЗАТАЩИТЬ` и `🏆 ТАБЛИЦА`, и **удаляет сообщение предыдущего челленджа** (`deleteMessage`), сбрасывая у старых записей `tg_message_id = NULL`. Таким образом в теме клуба всегда висит только один актуальный челлендж, и закрепление (`pinChatMessage`) не требуется.
-   - При успешном решении задачи игроком бот отправляет текстовый ответ (`reply_parameters.message_id = tg_message_id`) в тему клуба с инлайн-кнопкой `ТАБЛИЦА` и **автоматически удаляет это уведомление через 30 секунд** (`setTimeout(..., 30_000)` -> `deleteMessage`), чтобы чат не засорялся.
+   - При успешном решении задачи игроком бот отправляет текстовый ответ (`reply_parameters.message_id = tg_message_id`) в тему клуба:
+     - для **`tactics`**: `Попыток - N / Секунд - T` и инлайн-кнопка `[ 🏆 ТАБЛИЦА ]`;
+     - для **всех остальных дисциплин** (`theoretical_endgames`, `practical_chess`, `finishhim`): `Попыток - N / Ходов - M` (число ходов игрока `Math.ceil(plies / 2)`) и в одной строке две кнопки воспроизведения партии: `[ Игра ]` (`[ Game ]` в EN/DE — натуральная скорость с потолком `10 с` на обдумывание игрока и `250 мс` на ответ бота) и `[ ▶▶ ]` (`500 мс` между ходами; если у старой записи нет `move_times_ms`, рендерится только `[ ▶▶ ]`).
+   - **Настраиваемое автоудаление (`auto_delete_seconds`):** временные уведомления бота (`notifyChallengeSolved`, `notifyClubSettingsUpdated`) удаляются через `auto_delete_seconds` (`0` = не удалять, `30`, `60` по умолчанию, `180`, `300` секунд). Сообщение авто-паузы (`auto_pause_message_id`) этим таймером не затрагивается и всегда удаляется мгновенно при первом решении или сдаче (`clearAutoPause`).
    - Раз в `leaderboard_cron_days` дней планировщик публикует сводку Топ-10 игроков (`publishClubLeaderboardToTopic`).
    - **30-дневная ротация БД (`purgeExpiredThirtyDayRecords`):** раз в час планировщик автоматически удаляет из `tele_app.challenge_attempts` и `tele_app.club_challenges` записи старше 30 дней, удерживая размер базы данных компактным и синхронизированным с 30-дневным зачётом.
 
@@ -195,6 +208,9 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 
 - Вызов задачи: `c__<discCode>__<puzzleId>__<edition>__<encodedChatId>` -> `/challenge/:discipline/:puzzleId/:edition/:chatId`
 - Рекорды задачи: `r__<discCode>__<puzzleId>__<edition>__<encodedChatId>` -> `/records/:discipline/:puzzleId/:edition/:chatId`
+- Реплей партии из чата (`<= 64` байт): `g__<attemptId>` (`speed = "game"`) и `f__<attemptId>` (`speed = "fast"`) -> `/replay/:attemptId/:speed` -> `GET /api/challenges/attempt-ref/:attemptId` -> `/challenge/:discipline/:puzzleId/:edition/:chatId/:userId?speed=game|fast`.
+  - **Анти-спойлер:** если зритель сам ещё не решил и не сдался в этой задаче (`!isFinished`), переход по `g__` / `f__` приравнивается к обычному нажатию `🔥 ЗАТАЩИТЬ` (без спойлеров и лишних уведомлений).
+  - **Скрытие PGN-ленты без анализа:** строка ходов PGN под доской отображается исключительно при включённом `Stockfish` или `Coach`.
 - Таблица клуба: `l__<encodedChatId>` -> `/challenge/records/:chatId`
   _(Отрицательный `chat_id` вида `-1002255301933` кодируется как `n1002255301933` для соблюдения ограничений Telegram `startapp`)._
 
@@ -216,6 +232,6 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 
 ## 7. Технический долг (Technical Debt)
 
-- Все открытые задачи (включая декомпозицию крупных файлов `telegramBot.service.ts` и `challenges.routes.ts`, а также миграцию старого `DEFAULT 'maia-1500'` в `tele_app.club_challenges`) ведутся централизованно в корневом [`technical_debt.md`](file:///c:/MY_APPS/CHESS_APP/technical_debt.md) (`TD-04`, `TD-05`).
+- Все открытые задачи (включая дальнейшую декомпозицию `telegramBot.service.ts`) ведутся централизованно в корневом [`technical_debt.md`](file:///c:/MY_APPS/CHESS_APP/technical_debt.md) (`TD-04b`, `TD-05`).
 
 

@@ -42,6 +42,24 @@ export const ALL_SCHEDULE_INTERVALS: readonly ScheduleIntervalMinutes[] = [
   10, 15, 30, 60,
 ] as const;
 
+export type AutoDeleteSeconds = 0 | 30 | 60 | 180 | 300;
+
+export const ALL_AUTO_DELETE_SECONDS: readonly AutoDeleteSeconds[] = [
+  0, 30, 60, 180, 300,
+] as const;
+
+export function normalizeAutoDeleteSeconds(val: unknown): AutoDeleteSeconds {
+  if (
+    typeof val === "number" &&
+    (ALL_AUTO_DELETE_SECONDS as readonly number[]).includes(val)
+  ) {
+    return val as AutoDeleteSeconds;
+  }
+  return 60;
+}
+
+export type ReplaySpeedMode = "game" | "fast";
+
 export type ChallengeDiscipline =
   | "tactics"
   | "theoretical_endgames"
@@ -637,6 +655,7 @@ export interface ClubSummaryDTO {
   member_count: number;
   language: AppLanguage;
   timezone: string;
+  auto_delete_seconds: AutoDeleteSeconds;
   status: ClubStatus;
   is_active: boolean;
   auto_paused: boolean;
@@ -678,6 +697,7 @@ export interface ChallengeParticipantDTO {
   solved_time_ms: number | null;
   uci_moves: string;
   pgn_moves: string;
+  move_times_ms: number[] | null;
   updated_at: string;
   completed_at: string | null;
 }
@@ -719,6 +739,16 @@ export interface SubmitChallengeAttemptRequest {
   time_ms: number;
   uci_moves?: string;
   pgn_moves?: string;
+  move_times_ms?: number[];
+}
+
+export interface ChallengeAttemptRefDTO {
+  attempt_id: number;
+  discipline: ChallengeDiscipline;
+  puzzle_id: string;
+  edition: string;
+  chat_id: string;
+  telegram_id: string;
 }
 
 export interface ClubRecordEntryDTO {
@@ -774,6 +804,7 @@ export interface UpdateClubSettingsRequest {
   is_active: boolean;
   language: AppLanguage;
   timezone: string;
+  auto_delete_seconds?: AutoDeleteSeconds;
   status?: "active" | "paused";
   weekly_schedule: WeeklyScheduleConfig;
   leaderboard_cron_days: number;
@@ -1085,6 +1116,14 @@ export function encodeClubLeaderboardStartParam(chatId: string): string {
   return `l__${encodeChatIdForStartParam(chatId)}`;
 }
 
+export function encodeReplayStartParam(
+  speed: ReplaySpeedMode,
+  attemptId: number
+): string {
+  const prefix = speed === "game" ? "g" : "f";
+  return `${prefix}__${Math.trunc(attemptId)}`;
+}
+
 export function resolveRouteFromStartParam(startParam: string): string | null {
   const raw = startParam.trim();
   if (!raw) return null;
@@ -1099,6 +1138,15 @@ export function resolveRouteFromStartParam(startParam: string): string | null {
   if (kind === "l" && parts.length >= 2 && parts[1]) {
     const chatId = decodeChatIdFromStartParam(parts[1]);
     return `/challenge/records/${encodeURIComponent(chatId)}`;
+  }
+
+  if ((kind === "g" || kind === "f") && parts.length >= 2 && parts[1]) {
+    const attemptId = Number.parseInt(parts[1], 10);
+    if (Number.isFinite(attemptId) && attemptId > 0) {
+      const speed: ReplaySpeedMode = kind === "g" ? "game" : "fast";
+      return `/replay/${attemptId}/${speed}`;
+    }
+    return null;
   }
 
   if ((kind === "c" || kind === "r") && parts.length >= 5) {

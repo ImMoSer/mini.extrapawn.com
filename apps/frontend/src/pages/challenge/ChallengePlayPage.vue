@@ -5,12 +5,15 @@ import { useRoute, useRouter } from "vue-router";
 import {
   type ChallengeDiscipline,
   type ChallengeParticipantDTO,
+  type ReplaySpeedMode,
 } from "shared";
 import { useBoardStore, WebChessBoard } from "@/entities/chess";
-import { uciLineToSan } from "@/entities/chess/lib/chessPosition";
 import { useChallengeSessionStore } from "@/features/challenge-play/model/challengeSession.store";
 import { useCoachAnalysis } from "@/features/challenge-play/model/useCoachAnalysis";
+import ChallengeControlToolbar from "@/features/challenge-play/ui/ChallengeControlToolbar.vue";
+import ChallengeLeaderboardCard from "@/features/challenge-play/ui/ChallengeLeaderboardCard.vue";
 import CompactCoachPanel from "@/features/challenge-play/ui/CompactCoachPanel.vue";
+import StockfishAnalysisCard from "@/features/challenge-play/ui/StockfishAnalysisCard.vue";
 import { useI18n } from "@/shared/i18n/useI18n";
 import type { CoachDrawShape } from "@/shared/lib/coach/visualizer";
 import { useStockfishWasm } from "@/shared/lib/stockfishWasm";
@@ -34,6 +37,8 @@ const routeParams = computed(() => {
   const targetUserId = route.params.userId
     ? String(route.params.userId)
     : undefined;
+  const requestedSpeed: ReplaySpeedMode =
+    route.query.speed === "game" ? "game" : "fast";
 
   return {
     discipline,
@@ -41,6 +46,7 @@ const routeParams = computed(() => {
     edition: rawEdition,
     chatId: rawChatId,
     targetUserId,
+    requestedSpeed,
   };
 });
 
@@ -57,16 +63,9 @@ const goalLabel = computed(() => {
   return t("challenge_goal_win");
 });
 
-const formattedSfLines = computed(() => {
-  const fen = store.currentFen;
-  return wasm.state.value.lines.map((line) => {
-    const sanMoves = uciLineToSan(fen, line.pvUci);
-    return {
-      ...line,
-      pvText: sanMoves.length > 0 ? sanMoves.join(" ") : line.pvUci.join(" "),
-    };
-  });
-});
+const isAnalysisActive = computed(
+  () => store.isWasmAnalysisEnabled || store.isCoachAnalysisEnabled
+);
 
 const activeBoardShapes = computed<CoachDrawShape[]>(() => {
   if (!store.isFinished) return [];
@@ -141,9 +140,25 @@ function switchAnalysisTab(mode: "stockfish" | "coach") {
   store.setAnalysisMode(mode);
 }
 
-function handleReplayClick(participant: ChallengeParticipantDTO) {
+function handleReplayClick(
+  participant: ChallengeParticipantDTO,
+  speed: ReplaySpeedMode
+) {
   if (!store.isFinished || !participant.uci_moves) return;
-  store.startParticipantReplay(participant);
+  const effectiveSpeed: ReplaySpeedMode =
+    speed === "game" &&
+    Array.isArray(participant.move_times_ms) &&
+    participant.move_times_ms.length > 0
+      ? "game"
+      : "fast";
+  store.startParticipantReplay(participant, effectiveSpeed);
+}
+
+function openClubRecords() {
+  if (!store.challenge) return;
+  void router.push(
+    `/challenge/records/${encodeURIComponent(store.challenge.chat_id)}`
+  );
 }
 
 function goToNextActiveChallenge() {
@@ -158,6 +173,32 @@ function goToNextActiveChallenge() {
   );
 }
 
+function applyDeepLinkReplayOrAntiSpoiler() {
+  const { discipline, puzzleId, edition, chatId, targetUserId, requestedSpeed } =
+    routeParams.value;
+
+  // Anti-Spoiler: if viewer has not yet solved or surrendered, treat 100% identically to clicking "ЗАТАЩИТЬ"
+  if (!store.isFinished) {
+    if (targetUserId || route.query.speed !== undefined) {
+      void router.replace(
+        `/challenge/${discipline}/${encodeURIComponent(
+          puzzleId
+        )}/${encodeURIComponent(edition)}/${encodeURIComponent(chatId)}`
+      );
+    }
+    return;
+  }
+
+  if (targetUserId && store.challenge && store.challenge.discipline !== "tactics") {
+    const target = store.challenge.leaderboard.find(
+      (p) => p.telegram_id === targetUserId && p.uci_moves
+    );
+    if (target) {
+      handleReplayClick(target, requestedSpeed);
+    }
+  }
+}
+
 async function loadFromCurrentRoute() {
   wasm.stopAnalysis();
   coach.resetCoach();
@@ -170,14 +211,7 @@ async function loadFromCurrentRoute() {
     chatId: routeParams.value.chatId,
   });
 
-  if (routeParams.value.targetUserId && store.isFinished && store.challenge) {
-    const target = store.challenge.leaderboard.find(
-      (p) => p.telegram_id === routeParams.value.targetUserId && p.uci_moves
-    );
-    if (target) {
-      store.startParticipantReplay(target);
-    }
-  }
+  applyDeepLinkReplayOrAntiSpoiler();
 }
 
 watch(
@@ -298,262 +332,34 @@ onUnmounted(() => {
     </div>
 
     <!-- Single-Row Control Bar Directly Under Board -->
-    <section
+    <ChallengeControlToolbar
       v-if="store.challenge"
-      class="glass flex items-center justify-between gap-1.5 px-2 py-1.5"
-    >
-      <!-- Active Solving Mode Controls -->
-      <template v-if="!store.isFinished">
-        <button
-          type="button"
-          :disabled="!store.canReset"
-          class="flex-1 rounded-md border border-warning/40 bg-elevated px-3 py-1.5 text-xs font-bold text-warning transition hover:border-warning disabled:cursor-not-allowed disabled:opacity-40"
-          @click="store.resetChallengeAttempt()"
-        >
-          ↺ {{ t("challenge_reset_btn") }}
-        </button>
+      :is-finished="store.isFinished"
+      :can-reset="store.canReset"
+      :is-wasm-analysis-enabled="store.isWasmAnalysisEnabled"
+      :is-coach-analysis-enabled="store.isCoachAnalysisEnabled"
+      :can-step-prev="store.canStepPrev"
+      :can-step-next="store.canStepNext"
+      @reset="store.resetChallengeAttempt()"
+      @surrender="store.surrenderChallenge()"
+      @open-records="openClubRecords"
+      @switch-analysis="switchAnalysisTab"
+      @first-step="store.goToFirstStep()"
+      @prev-step="store.stepBackward()"
+      @next-step="store.stepForward()"
+      @last-step="store.goToLastStep()"
+    />
 
-        <button
-          type="button"
-          class="flex-1 rounded-md border border-danger/40 bg-elevated px-3 py-1.5 text-xs font-bold text-danger transition hover:border-danger"
-          @click="store.surrenderChallenge()"
-        >
-          🏳️ {{ t("challenge_surrender_btn") }}
-        </button>
-
-        <button
-          type="button"
-          class="rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-bold text-brand transition hover:border-brand"
-          @click="
-            router.push(
-              `/challenge/records/${encodeURIComponent(store.challenge.chat_id)}`
-            )
-          "
-        >
-          🏆 {{ t("cabinet_open_records") }}
-        </button>
-      </template>
-
-      <!-- Finished / Analysis Mode Single-Row Toolbar: [Stockfish] [Coach] | [SVG Nav] | [🏆 Рекорды] -->
-      <template v-else>
-        <div class="flex items-center gap-1">
-          <button
-            type="button"
-            class="rounded border px-2 py-1 text-[11px] font-bold tracking-tight uppercase transition"
-            :class="
-              store.isWasmAnalysisEnabled
-                ? 'border-highlight bg-highlight/20 text-highlight'
-                : 'border-border bg-elevated text-text-secondary hover:text-text-primary'
-            "
-            @click="switchAnalysisTab('stockfish')"
-          >
-            {{ t("challenge_wasm_btn") }}
-          </button>
-
-          <button
-            type="button"
-            class="rounded border px-2 py-1 text-[11px] font-bold tracking-tight uppercase transition"
-            :class="
-              store.isCoachAnalysisEnabled
-                ? 'border-brand bg-brand/20 text-brand'
-                : 'border-border bg-elevated text-text-secondary hover:text-text-primary'
-            "
-            @click="switchAnalysisTab('coach')"
-          >
-            {{ t("challenge_coach_btn") }}
-          </button>
-        </div>
-
-        <!-- Compact Single-Row Move Navigation (Ionicons 5 SVG icons matching app_vue ControlCenter.vue) -->
-        <div class="inline-flex items-center gap-0.5 rounded-md border border-border bg-elevated p-0.5">
-          <button
-            type="button"
-            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
-            :class="
-              store.canStepPrev
-                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
-                : 'text-text-disabled'
-            "
-            :disabled="!store.canStepPrev"
-            aria-label="First move"
-            @click="store.goToFirstStep()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
-              <path
-                d="M400 111v290c0 17.44-17 28.52-31 20.16L121.09 272.79c-12.12-7.25-12.12-26.33 0-33.58L369 90.84c14-8.36 31 2.72 31 20.16z"
-                fill="none"
-                stroke="currentColor"
-                stroke-miterlimit="10"
-                stroke-width="36"
-              />
-              <path
-                d="M112 80v352"
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-miterlimit="10"
-                stroke-width="36"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
-            :class="
-              store.canStepPrev
-                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
-                : 'text-text-disabled'
-            "
-            :disabled="!store.canStepPrev"
-            aria-label="Previous move"
-            @click="store.stepBackward()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
-              <path
-                d="M328 112L184 256l144 144"
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
-            :class="
-              store.canStepNext
-                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
-                : 'text-text-disabled'
-            "
-            :disabled="!store.canStepNext"
-            aria-label="Next move"
-            @click="store.stepForward()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
-              <path
-                d="M184 112l144 144-144 144"
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="flex h-6.5 w-7 items-center justify-center rounded-sm transition disabled:opacity-35"
-            :class="
-              store.canStepNext
-                ? 'text-text-secondary hover:bg-surface hover:text-text-primary'
-                : 'text-text-disabled'
-            "
-            :disabled="!store.canStepNext"
-            aria-label="Last move"
-            @click="store.goToLastStep()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="h-3.5 w-3.5">
-              <path
-                d="M112 111v290c0 17.44 17 28.52 31 20.16l247.9-148.37c12.12-7.25 12.12-26.33 0-33.58L143 90.84c-14-8.36-31 2.72-31 20.16z"
-                fill="none"
-                stroke="currentColor"
-                stroke-miterlimit="10"
-                stroke-width="36"
-              />
-              <path
-                d="M400 80v352"
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-miterlimit="10"
-                stroke-width="36"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <button
-          type="button"
-          class="shrink-0 rounded border border-border bg-elevated px-2 py-1 text-[11px] font-bold text-brand transition hover:border-brand"
-          @click="
-            router.push(
-              `/challenge/records/${encodeURIComponent(store.challenge.chat_id)}`
-            )
-          "
-        >
-          🏆 {{ t("cabinet_open_records") }}
-        </button>
-      </template>
-    </section>
-
-    <!-- Stockfish MultiPV = 3 Panel (Below Controls — Zero Board Shift!) -->
-    <section
+    <!-- Stockfish MultiPV = 3 Panel -->
+    <StockfishAnalysisCard
       v-if="store.isWasmAnalysisEnabled"
-      class="glass flex flex-col gap-1.5 p-2.5"
-    >
-      <div class="flex items-center justify-between text-xs">
-        <span class="font-bold text-highlight">
-          <template v-if="wasm.state.value.error">
-            ⚠️ {{ wasm.state.value.error }}
-          </template>
-          <template v-else-if="wasm.state.value.isLoading">
-            ⏳ Stockfish 19 Lite...
-          </template>
-          <template v-else>
-            Stockfish 19 Lite (d={{ wasm.state.value.depth }})
-          </template>
-        </span>
-        <span class="font-condensed text-sm font-bold text-text-primary">
-          {{ wasm.state.value.evalLabel }}
-        </span>
-      </div>
+      :wasm-state="wasm.state.value"
+      :current-fen="store.currentFen"
+      :selected-multipv="selectedSfMultipv"
+      @select-multipv="(mpv) => (selectedSfMultipv = mpv)"
+    />
 
-      <div class="h-1.5 w-full overflow-hidden rounded-full bg-eval-black">
-        <div
-          class="h-full bg-eval-white transition-all duration-200"
-          :style="{ width: `${wasm.state.value.evalWhitePercent}%` }"
-        ></div>
-      </div>
-
-      <!-- 3 MultiPV Lines with Win/Draw/Loss Evaluation Colors -->
-      <div v-if="formattedSfLines.length > 0" class="mt-0.5 flex flex-col gap-1">
-        <button
-          v-for="line in formattedSfLines"
-          :key="line.multipv"
-          type="button"
-          class="flex w-full items-center gap-2 rounded border px-2 py-1 text-left text-xs transition"
-          :class="
-            selectedSfMultipv === line.multipv
-              ? 'border-border-hover bg-elevated'
-              : 'border-border/60 bg-surface hover:border-border-hover'
-          "
-          @click="selectedSfMultipv = line.multipv"
-        >
-          <span class="w-3 shrink-0 font-mono text-[10px] font-bold text-text-secondary">
-            {{ line.multipv }}.
-          </span>
-          <span
-            class="w-12 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-[11px] font-bold"
-            :class="
-              line.arrowBrush === 'green'
-                ? 'bg-success/15 text-success'
-                : line.arrowBrush === 'red'
-                  ? 'bg-danger/15 text-danger'
-                  : 'bg-info/15 text-info'
-            "
-          >
-            {{ line.evalLabel }}
-          </span>
-          <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary">
-            {{ line.pvText }}
-          </span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Compact Coach Panel (Below Controls — 100% app_vue visual_commands compatible) -->
+    <!-- Compact Coach Panel -->
     <CompactCoachPanel
       v-if="store.isCoachAnalysisEnabled"
       :is-analyzing="coach.isAnalyzing.value"
@@ -571,9 +377,9 @@ onUnmounted(() => {
       @toggle-visuals="coach.toggleVisuals()"
     />
 
-    <!-- Multi-Row Wrapped PGN / Replay Strip (Placed BELOW Stockfish & Coach windows!) -->
+    <!-- Multi-Row Wrapped PGN Strip (Shown ONLY when Stockfish or Coach analysis is active) -->
     <div
-      v-if="store.isFinished && store.timelineSteps.length > 1"
+      v-if="isAnalysisActive && store.timelineSteps.length > 1"
       class="glass flex flex-wrap items-center gap-1.5 px-2.5 py-2 text-xs"
     >
       <template v-if="store.isReplayActive && store.replayParticipant">
@@ -623,69 +429,16 @@ onUnmounted(() => {
     </button>
 
     <!-- Per-Challenge Live Leaderboard -->
-    <section v-if="store.challenge" class="glass flex flex-col gap-2 p-3">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-          {{ t("challenge_leaderboard_title") }} ({{
-            store.challenge.leaderboard.length
-          }})
-        </h2>
-        <span
-          v-if="!store.isFinished"
-          class="text-[11px] text-text-secondary"
-        >
-          {{ t("challenge_moves_locked") }}
-        </span>
-      </div>
-
-      <div class="flex flex-col divide-y divide-border">
-        <div
-          v-for="p in store.challenge.leaderboard"
-          :key="p.telegram_id"
-          class="flex items-center justify-between gap-2 py-2 text-xs"
-        >
-          <div class="flex items-center gap-2">
-            <span class="w-5 font-condensed font-bold text-text-secondary">
-              #{{ p.rank }}
-            </span>
-            <span class="font-bold text-text-primary">
-              {{ p.display_name }}
-            </span>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <span
-              class="rounded px-2 py-0.5 font-condensed font-bold"
-              :class="
-                p.solved
-                  ? 'bg-success/15 text-success'
-                  : p.status === 'surrendered'
-                    ? 'bg-danger/15 text-danger'
-                    : 'bg-warning/15 text-warning'
-              "
-            >
-              {{ p.score_text }}
-              <template v-if="p.solved"> (+{{ p.points }} PTS)</template>
-            </span>
-
-            <span
-              v-if="p.solved && p.solved_time_ms !== null"
-              class="w-12 text-right font-condensed text-text-secondary"
-            >
-              {{ (Math.round((p.solved_time_ms / 1000) * 10) / 10).toFixed(1) }}s
-            </span>
-
-            <button
-              v-if="store.isFinished && p.solved && p.uci_moves"
-              type="button"
-              class="rounded border border-brand/40 bg-elevated px-2 py-0.5 text-[11px] font-bold text-brand transition hover:border-brand"
-              @click="handleReplayClick(p)"
-            >
-              {{ t("challenge_replay_moves") }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
+    <ChallengeLeaderboardCard
+      v-if="store.challenge"
+      :leaderboard="store.challenge.leaderboard"
+      :discipline="store.challenge.discipline"
+      :is-finished="store.isFinished"
+      :replay-participant="store.replayParticipant"
+      :auto-play-speed="store.autoPlaySpeed"
+      :is-auto-playing="store.isAutoPlaying"
+      @replay="handleReplayClick"
+      @exit-replay="store.exitParticipantReplay()"
+    />
   </div>
 </template>

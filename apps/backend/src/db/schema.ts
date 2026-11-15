@@ -56,6 +56,7 @@ export const clubs = teleAppSchema.table("clubs", {
   memberCount: integer("member_count").notNull().default(0),
   language: text("language").notNull().default("ru"),
   timezone: text("timezone").notNull().default("Europe/Berlin"),
+  autoDeleteSeconds: integer("auto_delete_seconds").notNull().default(60),
   status: text("status").notNull().default("active"),
   isActive: boolean("is_active").notNull().default(true),
   autoPaused: boolean("auto_paused").notNull().default(false),
@@ -172,6 +173,7 @@ export const challengeAttempts = teleAppSchema.table(
     solvedTimeMs: bigint("solved_time_ms", { mode: "number" }),
     uciMoves: text("uci_moves").notNull().default(""),
     pgnMoves: text("pgn_moves").notNull().default(""),
+    moveTimesMs: integer("move_times_ms").array(),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()

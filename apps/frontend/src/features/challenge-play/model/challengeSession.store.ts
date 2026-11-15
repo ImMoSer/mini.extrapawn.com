@@ -5,15 +5,14 @@ import type {
   ChallengeDiscipline,
   ChallengeParticipantDTO,
   ChallengeStateDTO,
+  ReplaySpeedMode,
 } from "shared";
 import { useBoardStore } from "@/entities/chess";
 import {
   analyzeFenPosition,
   applyMoveToFen,
-  buildReplayTimeline,
   isThreefoldRepetition,
   type AppliedMoveResult,
-  type ReplayStepSnapshot,
 } from "@/entities/chess/lib/chessPosition";
 import { apiRequest } from "@/shared/api/httpClient";
 import { playAppliedMoveSound, playChessSound } from "@/shared/lib/sound";
@@ -21,6 +20,11 @@ import {
   triggerHapticImpact,
   triggerHapticNotification,
 } from "@/shared/lib/telegram";
+import { useChallengeTimeline } from "./useChallengeTimeline";
+
+const BOT_NORMALIZED_MOVE_TIME_MS = 250;
+const MIN_USER_MOVE_TIME_MS = 100;
+const MAX_USER_MOVE_TIME_MS = 10_000;
 
 export const useChallengeSessionStore = defineStore("challengeSession", () => {
   const boardStore = useBoardStore();
@@ -38,10 +42,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
   const playedUciMoves = ref<string[]>([]);
   const playedSanMoves = ref<string[]>([]);
+  const playedMoveTimesMs = ref<number[]>([]);
 
-  // Unified move timeline for post-game stepping (|< < > >|) and Coach context
-  const timelineSteps = ref<ReplayStepSnapshot[]>([]);
-  const timelineCursor = ref(0);
   const coachRootFen = ref<string>(
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   );
@@ -53,17 +55,20 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     messageKey: string;
   } | null>(null);
 
-  // Timer state
   const elapsedMs = ref(0);
   let timerHandle: ReturnType<typeof setInterval> | null = null;
   let timerStartedAt = 0;
+  let turnStartedAt = Date.now();
 
-  // Replay participant metadata (when viewing another solved participant's game)
-  const replayParticipant = ref<ChallengeParticipantDTO | null>(null);
-
-  // Analysis engine mode ("none" | "stockfish" | "coach") unlocked when isFinished
   const analysisMode = ref<"none" | "stockfish" | "coach">("none");
   const gaviotaHint = ref<string | null>(null);
+
+  const timeline = useChallengeTimeline({
+    boardStore,
+    currentFen,
+    lastMove,
+    getChallenge: () => challenge.value,
+  });
 
   const positionSnapshot = computed(() => analyzeFenPosition(currentFen.value));
 
@@ -72,19 +77,12 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     return status === "solved" || status === "surrendered";
   });
 
-  const isReplayActive = computed(() => Boolean(replayParticipant.value));
-
   const isWasmAnalysisEnabled = computed(
     () => isFinished.value && analysisMode.value === "stockfish"
   );
 
   const isCoachAnalysisEnabled = computed(
     () => isFinished.value && analysisMode.value === "coach"
-  );
-
-  const canStepPrev = computed(() => timelineCursor.value > 0);
-  const canStepNext = computed(
-    () => timelineCursor.value < timelineSteps.value.length - 1
   );
 
   const isBoardInteractive = computed(() => {
@@ -102,8 +100,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   );
 
   const coachPayloadContext = computed(() => {
-    const stepMoves = timelineSteps.value
-      .slice(1, timelineCursor.value + 1)
+    const stepMoves = timeline.timelineSteps.value
+      .slice(1, timeline.timelineCursor.value + 1)
       .map((s) => s.uci)
       .filter(Boolean);
     return {
@@ -115,6 +113,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   function startTimer() {
     stopTimer();
     timerStartedAt = Date.now() - elapsedMs.value;
+    turnStartedAt = Date.now();
     timerHandle = setInterval(() => {
       elapsedMs.value = Date.now() - timerStartedAt;
     }, 100);
@@ -125,35 +124,18 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       clearInterval(timerHandle);
       timerHandle = null;
     }
-  }
-
-  function appendMoveToTimeline(
-    applied: AppliedMoveResult,
-    clearReplayTag: boolean = false
-  ) {
-    const truncated = timelineSteps.value.slice(0, timelineCursor.value + 1);
-    truncated.push({
-      stepIndex: truncated.length,
-      fen: applied.nextFen,
-      uci: applied.uci,
-      san: applied.san,
-      lastMove: [applied.from, applied.to],
-    });
-    timelineSteps.value = truncated;
-    timelineCursor.value = truncated.length - 1;
-    if (clearReplayTag && replayParticipant.value) {
-      replayParticipant.value = null;
-    }
+    timeline.stopAutoPlay();
   }
 
   function setupBoardFromChallenge(
     state: ChallengeStateDTO,
     options?: { skipSound?: boolean }
   ) {
-    replayParticipant.value = null;
     playedUciMoves.value = [];
     playedSanMoves.value = [];
+    playedMoveTimesMs.value = [];
     gaviotaHint.value = null;
+    turnStartedAt = Date.now();
 
     const rawSolution = (state.tactical_solution || "")
       .trim()
@@ -174,7 +156,9 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       if (state.initial_fen && state.initial_fen !== state.puzzle_fen) {
         try {
           const checkSetup = applyMoveToFen(state.initial_fen, m0);
-          if (checkSetup.nextFen.split(" ")[0] === state.puzzle_fen.split(" ")[0]) {
+          if (
+            checkSetup.nextFen.split(" ")[0] === state.puzzle_fen.split(" ")[0]
+          ) {
             resolvedRootFen = state.initial_fen;
             resolvedPrefixMoves = [checkSetup.uci];
           }
@@ -202,18 +186,30 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       shapes: [],
     });
 
-    timelineSteps.value = [
-      {
-        stepIndex: 0,
-        fen: canonicalRootFen,
-        uci: "",
-        san: "",
-        lastMove: initialLastMove,
-      },
-    ];
-    timelineCursor.value = 0;
+    timeline.resetTimelineRoot(canonicalRootFen, initialLastMove);
     scenarioStepIndex.value = 0;
     boardRevision.value += 1;
+  }
+
+  function restoreOwnSolvedTimelineIfAvailable(state: ChallengeStateDTO) {
+    if (state.my_entry?.status !== "solved") return;
+    if (state.my_entry.uci_moves) {
+      timeline.loadMovesIntoTimeline(
+        state.my_entry.uci_moves,
+        state.my_entry.move_times_ms,
+        null,
+        true
+      );
+      return;
+    }
+    if (state.discipline === "tactics" && expectedSolutionMoves.value.length > 0) {
+      timeline.loadMovesIntoTimeline(
+        expectedSolutionMoves.value.join(" "),
+        null,
+        null,
+        true
+      );
+    }
   }
 
   async function loadChallenge(params: {
@@ -245,9 +241,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
           type: "success",
           messageKey: "challenge_solved_banner",
         };
-        if (res.my_entry.uci_moves) {
-          loadMovesIntoTimeline(res.my_entry.uci_moves, null);
-        }
+        restoreOwnSolvedTimelineIfAvailable(res);
       } else if (res.my_entry?.status === "surrendered") {
         elapsedMs.value = 0;
         feedbackBanner.value = {
@@ -268,6 +262,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   async function submitAttemptToBackend(solved: boolean): Promise<void> {
     if (!challenge.value) return;
     const c = challenge.value;
+    const includeHistory = solved && c.discipline !== "tactics";
     try {
       const updated = await apiRequest<ChallengeStateDTO>(
         `/challenges/${encodeURIComponent(c.discipline)}/${encodeURIComponent(
@@ -280,8 +275,9 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
           body: JSON.stringify({
             solved,
             time_ms: elapsedMs.value,
-            uci_moves: playedUciMoves.value.join(" "),
-            pgn_moves: playedSanMoves.value.join(" "),
+            uci_moves: includeHistory ? playedUciMoves.value.join(" ") : "",
+            pgn_moves: includeHistory ? playedSanMoves.value.join(" ") : "",
+            move_times_ms: includeHistory ? playedMoveTimesMs.value : undefined,
           }),
         }
       );
@@ -356,16 +352,32 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     isThreefoldRepetition: boolean;
   };
 
-  function commitAppliedMove(applied: AppliedMoveResult): EvaluatedMoveResult {
+  function commitAppliedMove(
+    applied: AppliedMoveResult,
+    actor: "user" | "bot"
+  ): EvaluatedMoveResult {
+    const now = Date.now();
+    const plyDurationMs =
+      actor === "user"
+        ? Math.min(
+            MAX_USER_MOVE_TIME_MS,
+            Math.max(MIN_USER_MOVE_TIME_MS, now - turnStartedAt)
+          )
+        : BOT_NORMALIZED_MOVE_TIME_MS;
+
     currentFen.value = applied.nextFen;
     lastMove.value = [applied.from, applied.to];
     boardStore.applyUciMove(applied.uci, { skipSound: true });
     playedUciMoves.value.push(applied.uci);
     playedSanMoves.value.push(applied.san);
-    appendMoveToTimeline(applied);
+    playedMoveTimesMs.value.push(plyDurationMs);
+    timeline.appendMoveToTimeline(applied, { delayMs: plyDurationMs });
+
+    // Reset turn clock right when the move lands on board so user thinking time excludes bot roundtrip
+    turnStartedAt = Date.now();
 
     const repetition = isThreefoldRepetition(
-      timelineSteps.value.map((step) => step.fen),
+      timeline.timelineSteps.value.map((step) => step.fen),
       applied.nextFen
     );
 
@@ -436,7 +448,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       }
 
       const evaluated = commitAppliedMove(
-        applyMoveToFen(currentFen.value, res.bestMove)
+        applyMoveToFen(currentFen.value, res.bestMove),
+        "bot"
       );
       playAppliedMoveSound(evaluated);
 
@@ -460,16 +473,15 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   async function handleUserMove(uciMove: string): Promise<void> {
     if (!challenge.value) return;
 
-    // Post-game free analysis mode: branch timeline from current cursor
     if (isFinished.value) {
       try {
         const applied = applyMoveToFen(currentFen.value, uciMove);
         currentFen.value = applied.nextFen;
         lastMove.value = [applied.from, applied.to];
         boardStore.applyUciMove(applied.uci, { skipSound: true });
-        appendMoveToTimeline(applied, true);
+        timeline.appendMoveToTimeline(applied, { clearReplayTag: true });
         const repetition = isThreefoldRepetition(
-          timelineSteps.value.map((step) => step.fen),
+          timeline.timelineSteps.value.map((step) => step.fen),
           applied.nextFen
         );
         playAppliedMoveSound({
@@ -487,7 +499,6 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     error.value = null;
     feedbackBanner.value = null;
 
-    // 1. Scripted scenario phase
     const expectedUci = expectedSolutionMoves.value[scenarioStepIndex.value];
     if (expectedUci) {
       const preview = applyMoveToFen(currentFen.value, uciMove);
@@ -504,7 +515,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         return;
       }
 
-      const evaluated = commitAppliedMove(preview);
+      const evaluated = commitAppliedMove(preview, "user");
       scenarioStepIndex.value += 1;
       triggerHapticImpact("light");
       playAppliedMoveSound(evaluated);
@@ -527,7 +538,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         isBotThinking.value = true;
         let botEvaluated: EvaluatedMoveResult | null = null;
         try {
-          await new Promise((r) => setTimeout(r, 260));
+          await new Promise((r) => setTimeout(r, BOT_NORMALIZED_MOVE_TIME_MS));
           if (
             boardRevision.value !== revisionAtDelay ||
             !challenge.value ||
@@ -536,7 +547,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
             return;
           }
           botEvaluated = commitAppliedMove(
-            applyMoveToFen(currentFen.value, botUci)
+            applyMoveToFen(currentFen.value, botUci),
+            "bot"
           );
           scenarioStepIndex.value += 1;
         } finally {
@@ -564,9 +576,9 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       return;
     }
 
-    // 2. PlayOut Sparring Phase (`playOutOnly` or post-scenario `scenarioPlus`)
     const evaluated = commitAppliedMove(
-      applyMoveToFen(currentFen.value, uciMove)
+      applyMoveToFen(currentFen.value, uciMove),
+      "user"
     );
     triggerHapticImpact("light");
     playAppliedMoveSound(evaluated);
@@ -612,75 +624,17 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     }
   }
 
-  function loadMovesIntoTimeline(
-    uciMoves: string,
-    participant: ChallengeParticipantDTO | null
-  ) {
-    if (!challenge.value) return;
-    const initialStep = timelineSteps.value[0];
-    const built = buildReplayTimeline(challenge.value.puzzle_fen, uciMoves);
-    if (built[0] && initialStep?.lastMove) {
-      built[0].lastMove = initialStep.lastMove;
-    }
-    replayParticipant.value = participant;
-    timelineSteps.value = built;
-    setTimelineStep(built.length - 1, false);
-  }
-
-  function startParticipantReplay(participant: ChallengeParticipantDTO): void {
-    if (!challenge.value || !participant.uci_moves) return;
-    loadMovesIntoTimeline(participant.uci_moves, participant);
-    playChessSound("chpock");
-  }
-
-  function setTimelineStep(index: number, withSound: boolean = true): void {
-    if (!timelineSteps.value.length) return;
-    const clamped = Math.max(
-      0,
-      Math.min(timelineSteps.value.length - 1, index)
-    );
-    const prevIndex = timelineCursor.value;
-    timelineCursor.value = clamped;
-    const snap = timelineSteps.value[clamped];
-    if (!snap) return;
-    currentFen.value = snap.fen;
-    lastMove.value = snap.lastMove;
-    boardStore.loadPosition(snap.fen, { skipSound: true });
-    boardStore.syncVisualCues({
-      lastMove: snap.lastMove,
-      lastNag: null,
-      shapes: [],
-    });
-    if (withSound && clamped !== prevIndex) {
-      playChessSound("chpock");
-    }
-  }
-
-  function goToFirstStep(): void {
-    setTimelineStep(0);
-  }
-
-  function stepBackward(): void {
-    setTimelineStep(timelineCursor.value - 1);
-  }
-
-  function stepForward(): void {
-    setTimelineStep(timelineCursor.value + 1);
-  }
-
-  function goToLastStep(): void {
-    setTimelineStep(timelineSteps.value.length - 1);
+  function startParticipantReplay(
+    participant: ChallengeParticipantDTO,
+    speed: ReplaySpeedMode = "fast"
+  ): void {
+    timeline.startParticipantReplay(participant, speed);
   }
 
   function exitParticipantReplay(): void {
     if (!challenge.value) return;
     setupBoardFromChallenge(challenge.value, { skipSound: true });
-    if (
-      challenge.value.my_entry?.status === "solved" &&
-      challenge.value.my_entry.uci_moves
-    ) {
-      loadMovesIntoTimeline(challenge.value.my_entry.uci_moves, null);
-    }
+    restoreOwnSolvedTimelineIfAvailable(challenge.value);
     playChessSound("chpock");
   }
 
@@ -698,22 +652,24 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     lastMove,
     playedUciMoves,
     playedSanMoves,
-    timelineSteps,
-    timelineCursor,
-    canStepPrev,
-    canStepNext,
+    timelineSteps: timeline.timelineSteps,
+    timelineCursor: timeline.timelineCursor,
+    canStepPrev: timeline.canStepPrev,
+    canStepNext: timeline.canStepNext,
     coachPayloadContext,
     isBotThinking,
     feedbackBanner,
     elapsedMs,
-    replayParticipant,
+    replayParticipant: timeline.replayParticipant,
+    autoPlaySpeed: timeline.autoPlaySpeed,
+    isAutoPlaying: timeline.isAutoPlaying,
     analysisMode,
     isWasmAnalysisEnabled,
     isCoachAnalysisEnabled,
     gaviotaHint,
     positionSnapshot,
     isFinished,
-    isReplayActive,
+    isReplayActive: timeline.isReplayActive,
     isBoardInteractive,
     canReset,
     loadChallenge,
@@ -721,11 +677,11 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     resetChallengeAttempt,
     surrenderChallenge,
     startParticipantReplay,
-    setTimelineStep,
-    goToFirstStep,
-    stepBackward,
-    stepForward,
-    goToLastStep,
+    setTimelineStep: timeline.setTimelineStep,
+    goToFirstStep: timeline.goToFirstStep,
+    stepBackward: timeline.stepBackward,
+    stepForward: timeline.stepForward,
+    goToLastStep: timeline.goToLastStep,
     exitParticipantReplay,
     setAnalysisMode,
     stopTimer,

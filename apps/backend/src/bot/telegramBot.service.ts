@@ -42,12 +42,18 @@ import {
   type NormalizedChallengePuzzle,
   puzzleClientService,
 } from "../services/puzzleClient.service.js";
-
-interface TelegramApiResponse<T> {
-  ok: boolean;
-  result?: T;
-  description?: string;
-}
+import {
+  type NotifyChallengeSolvedParams,
+  sendChallengeSolvedNotification,
+  sendClubSettingsUpdatedNotification,
+} from "./botNotifications.js";
+import {
+  callTelegramJson,
+  deleteTelegramMessage,
+  escapeHtml,
+  normalizeLang,
+  type TelegramApiResponse,
+} from "./telegramApi.js";
 
 export interface TelegramUserPayload {
   id: number;
@@ -375,19 +381,6 @@ const PLAIN_DIFFICULTY_LABELS: Record<
   },
 };
 
-function normalizeLang(raw: string | null | undefined): AppLanguage {
-  if (raw === "en" || raw === "de") return raw;
-  return "ru";
-}
-
-function escapeHtml(raw: string): string {
-  return raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function buildChallengeCaption(
   puzzle: NormalizedChallengePuzzle,
   rawLang: AppLanguage
@@ -479,63 +472,6 @@ function buildChallengeCaption(
     `⚔️ <b>Задача:</b> ${goalLabel}`,
     `⏳ <b>Ход:</b> ${turnLabel}`,
   ].join("\n");
-}
-
-async function callTelegramJson<T>(
-  method: string,
-  payload: Record<string, unknown>
-): Promise<TelegramApiResponse<T>> {
-  if (!env.TELEGRAM_BOT_TOKEN) {
-    return { ok: false, description: "TELEGRAM_BOT_TOKEN not set" };
-  }
-  const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`;
-  const isLongPoll = method === "getUpdates";
-  const maxAttempts = isLongPoll ? 1 : 3;
-  const timeoutMs = isLongPoll ? 25_000 : 15_000;
-
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Connection: "close",
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      return (await res.json()) as TelegramApiResponse<T>;
-    } catch (err) {
-      lastError = err;
-      if (attempt < maxAttempts) {
-        console.warn(
-          `[TelegramBot] ${method} network error (attempt ${attempt}/${maxAttempts}), retrying...`,
-          err instanceof Error ? err.message : err
-        );
-        await new Promise((r) => setTimeout(r, 400 * attempt));
-      }
-    }
-  }
-  throw lastError;
-}
-
-async function deleteTelegramMessage(
-  chatId: string,
-  messageId: number
-): Promise<void> {
-  if (!env.TELEGRAM_BOT_TOKEN || !messageId) return;
-  try {
-    await callTelegramJson("deleteMessage", {
-      chat_id: chatId,
-      message_id: messageId,
-    });
-  } catch (err) {
-    console.warn(
-      `[TelegramBot] deleteMessage failed for chat ${chatId} (message ${messageId}):`,
-      err instanceof Error ? err.message : err
-    );
-  }
 }
 
 async function upsertTelegramUser(raw: TelegramUserPayload): Promise<string> {
@@ -1013,134 +949,17 @@ export const telegramBotService = {
     return inserted;
   },
 
-  /**
-   * Sends the reply notification to the club's topic thread when a player solves a challenge:
-   * "{{username}} 🤝\nПопыток - {{attempts}}\nСекунд - {{seconds}}" + inline button ТАБЛИЦА
-   */
-  async notifyChallengeSolved(params: {
-    chatId: string;
-    discipline: ChallengeDiscipline;
-    puzzleId: string;
-    edition: string;
-    username: string;
-    attempts: number;
-    timeMs: number;
-  }): Promise<void> {
-    if (!env.TELEGRAM_BOT_TOKEN) return;
-
-    const [club] = await db
-      .select()
-      .from(clubs)
-      .where(eq(clubs.chatId, params.chatId))
-      .limit(1);
-
-    if (!club || club.status === "blocked") return;
-
-    const [challenge] = await db
-      .select()
-      .from(clubChallenges)
-      .where(
-        and(
-          eq(clubChallenges.chatId, params.chatId),
-          eq(clubChallenges.discipline, params.discipline),
-          eq(clubChallenges.puzzleId, params.puzzleId),
-          eq(clubChallenges.edition, params.edition)
-        )
-      )
-      .orderBy(desc(clubChallenges.publishedAt))
-      .limit(1);
-
-    const seconds = Math.round((params.timeMs / 1000) * 10) / 10;
-    const lang = normalizeLang(club.language);
-    const text =
-      lang === "en"
-        ? `${params.username} 🤝\nAttempts - ${params.attempts}\nSeconds - ${seconds}`
-        : lang === "de"
-          ? `${params.username} 🤝\nVersuche - ${params.attempts}\nSekunden - ${seconds}`
-          : `${params.username} 🤝\nПопыток - ${params.attempts}\nСекунд - ${seconds}`;
-
-    const recordsStartParam = encodeClubLeaderboardStartParam(params.chatId);
-    const tableBtnText =
-      lang === "en"
-        ? "🏆 TABLE"
-        : lang === "de"
-          ? "🏆 TABELLE"
-          : "🏆 ТАБЛИЦА";
-
-    const payload: Record<string, unknown> = {
-      chat_id: params.chatId,
-      text,
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: tableBtnText,
-              url: `https://t.me/${env.BOT_USERNAME}?startapp=${recordsStartParam}`,
-            },
-          ],
-        ],
-      },
-    };
-
-    if (club.topicThreadId > 0) {
-      payload.message_thread_id = club.topicThreadId;
-    }
-    if (challenge?.tgMessageId) {
-      payload.reply_parameters = {
-        message_id: challenge.tgMessageId,
-        allow_sending_without_reply: true,
-      };
-    }
-
-    const sendRes = await callTelegramJson<{ message_id: number }>(
-      "sendMessage",
-      payload
-    );
-    const solvedMessageId = sendRes.result?.message_id;
-    if (solvedMessageId) {
-      setTimeout(() => {
-        void deleteTelegramMessage(params.chatId, solvedMessageId);
-      }, 30_000);
-    }
+  async notifyChallengeSolved(
+    params: NotifyChallengeSolvedParams
+  ): Promise<void> {
+    await sendChallengeSolvedNotification(params);
   },
 
-  /**
-   * Sends a concise notification to the club's topic thread when an admin saves club settings.
-   */
   async notifyClubSettingsUpdated(params: {
     chatId: string;
     firstName: string;
   }): Promise<void> {
-    if (!env.TELEGRAM_BOT_TOKEN) return;
-
-    const [club] = await db
-      .select()
-      .from(clubs)
-      .where(eq(clubs.chatId, params.chatId))
-      .limit(1);
-
-    if (!club || club.status === "blocked") return;
-
-    const lang = normalizeLang(club.language);
-    const safeName = escapeHtml(params.firstName.trim() || "Admin");
-    const text =
-      lang === "en"
-        ? `⚙️ <b>${safeName}</b> updated the settings.`
-        : lang === "de"
-          ? `⚙️ <b>${safeName}</b> hat die Einstellungen geändert.`
-          : `⚙️ <b>${safeName}</b> изменил настройки.`;
-
-    const payload: Record<string, unknown> = {
-      chat_id: params.chatId,
-      parse_mode: "HTML",
-      text,
-    };
-
-    if (club.topicThreadId > 0) {
-      payload.message_thread_id = club.topicThreadId;
-    }
-
-    await callTelegramJson("sendMessage", payload);
+    await sendClubSettingsUpdatedNotification(params);
   },
 
   /**
