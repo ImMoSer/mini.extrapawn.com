@@ -78,7 +78,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 ├── docker-compose.yml                        # Стек mini-backend + mini-frontend в dokploy-network
 ├── .env_local                                # Локальное окружение (в .gitignore)
 ├── .env_dokploy                              # Продакшен-переменные для Dokploy (в .gitignore)
-└── tg_bot_concept.md                         # Данный документ
+└── service_info.md                           # Данный технический паспорт сервиса
 ```
 
 > **WASM Stockfish 19:** Бинарные файлы `stockfish-19-single.js` и `stockfish-19-single.wasm` (94.5 МБ) **не хранятся в Git** (`apps/frontend/public/stockfish/` добавлен в `.gitignore`). Они автоматически копируются из `node_modules/stockfish/bin/` скриптами `postinstall` и `prebuild` (`pnpm run copy-stockfish` в `apps/frontend/package.json`).
@@ -216,6 +216,6 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 
 ## 7. Технический долг (Technical Debt)
 
-- Открытого технического долга нет. Локализация всех ключей тем, тактических мотивов и эндшпильных классов (`ENDGAME_CLASS_TO_DOMAIN`, `resolveCanonicalFocusKey`, `formatFocusLabel`) на русский, английский и немецкий языки полностью реализована в `packages/shared/src/index.ts` и `useI18n.ts`.
+- Все открытые задачи (включая декомпозицию крупных файлов `telegramBot.service.ts` и `challenges.routes.ts`, а также миграцию старого `DEFAULT 'maia-1500'` в `tele_app.club_challenges`) ведутся централизованно в корневом [`technical_debt.md`](file:///c:/MY_APPS/CHESS_APP/technical_debt.md) (`TD-04`, `TD-05`).
 
 
