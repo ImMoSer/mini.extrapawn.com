@@ -138,6 +138,113 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Discipline Legend -->
+    <section class="glass flex flex-wrap items-center gap-3 px-4 py-2.5 text-xs">
+      <div class="flex items-center gap-1.5">
+        <span class="h-2.5 w-2.5 rounded-xs bg-success"></span>
+        <span class="text-text-secondary">Tactics</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="h-2.5 w-2.5 rounded-xs bg-warning"></span>
+        <span class="text-text-secondary">Finish Him</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="h-2.5 w-2.5 rounded-xs bg-info"></span>
+        <span class="text-text-secondary">Practical</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="h-2.5 w-2.5 rounded-xs bg-accent"></span>
+        <span class="text-text-secondary">Theoretical</span>
+      </div>
+    </section>
+
+    <!-- Club Leaderboard Rows -->
+    <section v-if="data" class="glass flex flex-col divide-y divide-border p-3.5">
+      <div
+        v-if="!data.records.length"
+        class="py-6 text-center text-xs text-text-secondary"
+      >
+        {{ t("records_empty_club") }}
+      </div>
+
+      <div
+        v-for="rec in data.records"
+        :key="rec.telegram_id"
+        class="flex flex-col gap-1.5 py-3"
+      >
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <span class="w-6 font-condensed font-bold text-text-secondary">
+              #{{ rec.rank }}
+            </span>
+            <span class="font-bold text-text-primary">
+              {{ rec.display_name }}
+            </span>
+          </div>
+
+          <div class="flex items-center gap-3 font-condensed">
+            <span class="font-bold text-brand">
+              {{ rec.total_points }} PTS
+            </span>
+            <span class="text-text-secondary">
+              {{ rec.solved_count }}/{{ rec.attempted_puzzles }} ({{
+                rec.total_attempts
+              }}
+              att)
+            </span>
+            <span class="w-14 text-right text-text-secondary">
+              {{ rec.total_seconds.toFixed(1) }}s
+            </span>
+          </div>
+        </div>
+
+        <!-- Stacked Discipline Bar -->
+        <div class="flex h-2 w-full overflow-hidden rounded-full bg-elevated">
+          <div
+            v-if="rec.tactics_points > 0"
+            class="h-full bg-success"
+            :style="{
+              width: `${(rec.tactics_points / maxTotalPoints) * 100}%`,
+            }"
+          ></div>
+          <div
+            v-if="rec.finishhim_points > 0"
+            class="h-full bg-warning"
+            :style="{
+              width: `${(rec.finishhim_points / maxTotalPoints) * 100}%`,
+            }"
+          ></div>
+          <div
+            v-if="rec.practical_points > 0"
+            class="h-full bg-info"
+            :style="{
+              width: `${(rec.practical_points / maxTotalPoints) * 100}%`,
+            }"
+          ></div>
+          <div
+            v-if="rec.theoretical_points > 0"
+            class="h-full bg-accent"
+            :style="{
+              width: `${(rec.theoretical_points / maxTotalPoints) * 100}%`,
+            }"
+          ></div>
+        </div>
+
+        <!-- Solve Time Bar -->
+        <div class="h-1 w-full overflow-hidden rounded-full bg-elevated">
+          <div
+            class="h-full bg-text-secondary/50"
+            :style="{
+              width: `${Math.min(
+                100,
+                (rec.total_seconds / maxTotalSeconds) * 100
+              )}%`,
+            }"
+          ></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Club Challenges Section (2 Tabs: 🔥 Активные / ✅ Пройденные) -->
     <section
       v-if="data && data.recent_challenges.length > 0"
@@ -294,113 +401,6 @@ onMounted(() => {
           </button>
         </div>
       </template>
-    </section>
-
-    <!-- Discipline Legend -->
-    <section class="glass flex flex-wrap items-center gap-3 px-4 py-2.5 text-xs">
-      <div class="flex items-center gap-1.5">
-        <span class="h-2.5 w-2.5 rounded-xs bg-success"></span>
-        <span class="text-text-secondary">Tactics</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="h-2.5 w-2.5 rounded-xs bg-warning"></span>
-        <span class="text-text-secondary">Finish Him</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="h-2.5 w-2.5 rounded-xs bg-info"></span>
-        <span class="text-text-secondary">Practical</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="h-2.5 w-2.5 rounded-xs bg-accent"></span>
-        <span class="text-text-secondary">Theoretical</span>
-      </div>
-    </section>
-
-    <!-- Club Leaderboard Rows -->
-    <section v-if="data" class="glass flex flex-col divide-y divide-border p-3.5">
-      <div
-        v-if="!data.records.length"
-        class="py-6 text-center text-xs text-text-secondary"
-      >
-        {{ t("records_empty_club") }}
-      </div>
-
-      <div
-        v-for="rec in data.records"
-        :key="rec.telegram_id"
-        class="flex flex-col gap-1.5 py-3"
-      >
-        <div class="flex items-center justify-between text-xs">
-          <div class="flex items-center gap-2">
-            <span class="w-6 font-condensed font-bold text-text-secondary">
-              #{{ rec.rank }}
-            </span>
-            <span class="font-bold text-text-primary">
-              {{ rec.display_name }}
-            </span>
-          </div>
-
-          <div class="flex items-center gap-3 font-condensed">
-            <span class="font-bold text-brand">
-              {{ rec.total_points }} PTS
-            </span>
-            <span class="text-text-secondary">
-              {{ rec.solved_count }}/{{ rec.attempted_puzzles }} ({{
-                rec.total_attempts
-              }}
-              att)
-            </span>
-            <span class="w-14 text-right text-text-secondary">
-              {{ rec.total_seconds.toFixed(1) }}s
-            </span>
-          </div>
-        </div>
-
-        <!-- Stacked Discipline Bar -->
-        <div class="flex h-2 w-full overflow-hidden rounded-full bg-elevated">
-          <div
-            v-if="rec.tactics_points > 0"
-            class="h-full bg-success"
-            :style="{
-              width: `${(rec.tactics_points / maxTotalPoints) * 100}%`,
-            }"
-          ></div>
-          <div
-            v-if="rec.finishhim_points > 0"
-            class="h-full bg-warning"
-            :style="{
-              width: `${(rec.finishhim_points / maxTotalPoints) * 100}%`,
-            }"
-          ></div>
-          <div
-            v-if="rec.practical_points > 0"
-            class="h-full bg-info"
-            :style="{
-              width: `${(rec.practical_points / maxTotalPoints) * 100}%`,
-            }"
-          ></div>
-          <div
-            v-if="rec.theoretical_points > 0"
-            class="h-full bg-accent"
-            :style="{
-              width: `${(rec.theoretical_points / maxTotalPoints) * 100}%`,
-            }"
-          ></div>
-        </div>
-
-        <!-- Solve Time Bar -->
-        <div class="h-1 w-full overflow-hidden rounded-full bg-elevated">
-          <div
-            class="h-full bg-text-secondary/50"
-            :style="{
-              width: `${Math.min(
-                100,
-                (rec.total_seconds / maxTotalSeconds) * 100
-              )}%`,
-            }"
-          ></div>
-        </div>
-      </div>
     </section>
   </div>
 </template>

@@ -589,7 +589,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     error.value = null;
     isBotThinking.value = false;
     boardRevision.value += 1;
-    playChessSound("timer_times_up");
+    playChessSound("nevergiveup");
     triggerHapticNotification("warning");
     const c = challenge.value;
     try {

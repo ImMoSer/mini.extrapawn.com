@@ -27,6 +27,7 @@ const { t } = useI18n();
 
 const data = ref<ClubsCompetitionResponseDTO | null>(null);
 const isLoading = ref(false);
+const isAddBotExpanded = ref(false);
 const termsAccepted = ref(false);
 const selectedClubLanguage = ref<AppLanguage | null>(null);
 
@@ -280,25 +281,38 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- 1-Click Add Bot to Supergroup Onboarding (Placed below the last club) -->
+    <!-- 1-Click Add Bot to Supergroup Onboarding (Collapsible, placed below the last club) -->
     <section class="glass flex flex-col gap-3 p-4">
-      <div class="flex flex-col gap-1">
-        <h2 class="text-xs font-bold tracking-wider text-brand uppercase">
+      <button
+        type="button"
+        class="flex w-full min-w-0 cursor-pointer items-center justify-between gap-3 text-left"
+        :aria-expanded="isAddBotExpanded"
+        @click="isAddBotExpanded = !isAddBotExpanded"
+      >
+        <h2 class="min-w-0 truncate text-xs font-bold tracking-wider text-brand uppercase">
           {{ t("cabinet_add_bot_title") }}
         </h2>
+        <span
+          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-elevated font-condensed text-base font-bold text-text-primary transition hover:border-brand hover:text-brand"
+          aria-hidden="true"
+        >
+          {{ isAddBotExpanded ? "−" : "+" }}
+        </span>
+      </button>
+
+      <template v-if="isAddBotExpanded">
         <p class="text-xs leading-relaxed text-text-secondary">
           {{ t("cabinet_add_bot_desc") }}
         </p>
-      </div>
 
-      <div
-        v-if="isClubLimitReached"
-        class="rounded-lg border border-warning/40 bg-warning/15 p-3 text-xs font-semibold text-warning"
-      >
-        ⚠️ {{ t("cabinet_limit_reached") }}
-      </div>
+        <div
+          v-if="isClubLimitReached"
+          class="rounded-lg border border-warning/40 bg-warning/15 p-3 text-xs font-semibold text-warning"
+        >
+          ⚠️ {{ t("cabinet_limit_reached") }}
+        </div>
 
-      <template v-else>
+        <template v-else>
         <!-- 3 Concise Onboarding Rules -->
         <ul
           class="flex flex-col gap-1.5 rounded-lg border border-border bg-elevated/60 p-3 text-xs leading-relaxed text-text-secondary"
@@ -391,6 +405,7 @@ onMounted(() => {
         >
           {{ t("cabinet_add_bot_btn") }}
         </button>
+        </template>
       </template>
     </section>
   </div>

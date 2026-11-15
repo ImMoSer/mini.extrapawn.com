@@ -19,6 +19,7 @@ export type SoundKey =
   | "timer_10s"
   | "timer_8s"
   | "timer_times_up"
+  | "nevergiveup"
   | "success"
   | "error";
 
@@ -50,6 +51,7 @@ const SOUND_DEFINITIONS: Record<SoundKey, string | readonly string[]> = {
   timer_10s: "/sounds/timer/timer_10s.mp3",
   timer_8s: "/sounds/timer/timer_8s.mp3",
   timer_times_up: "/sounds/timer/timer_times_up.mp3",
+  nevergiveup: "/sounds/nevergiveup.mp3",
 };
 
 class SoundServiceController {
