@@ -5,7 +5,6 @@ import {
   and,
   desc,
   eq,
-  gte,
   inArray,
   isNotNull,
   lt,
@@ -14,14 +13,12 @@ import {
 } from "drizzle-orm";
 import {
   ALL_DAYS_OF_WEEK,
-  calculateAttemptPoints,
   createDefaultWeeklySchedule,
   encodeChallengeStartParam,
   encodeClubLeaderboardStartParam,
   formatFocusLabel,
   MAX_OWNED_CLUBS_PER_USER,
   normalizeWeeklySchedule,
-  roundPoints,
   type AppLanguage,
   type ChallengeDifficulty,
   type ChallengeDiscipline,
@@ -51,6 +48,7 @@ import {
   callTelegramJson,
   deleteTelegramMessage,
   escapeHtml,
+  flushClubTopicMessagesOnPublish,
   normalizeLang,
   type TelegramApiResponse,
 } from "./telegramApi.js";
@@ -870,7 +868,7 @@ export const telegramBotService = {
       );
     }
 
-    // Auto-clean previous challenge message(s) so only the active challenge stays in the topic
+    // Batch-clean previous challenge board(s) + all solve & settings notifications from the previous cycle
     const previousActiveMessages = await db
       .select({
         id: clubChallenges.id,
@@ -884,11 +882,15 @@ export const telegramBotService = {
         )
       );
 
-    for (const prev of previousActiveMessages) {
-      if (prev.tgMessageId && prev.tgMessageId !== tgMessageId) {
-        await deleteTelegramMessage(chatId, prev.tgMessageId);
-      }
-    }
+    const previousBoardIds = previousActiveMessages
+      .map((prev) => prev.tgMessageId)
+      .filter((id): id is number => Boolean(id && id !== tgMessageId));
+
+    await flushClubTopicMessagesOnPublish(
+      chatId,
+      tgMessageId ?? null,
+      previousBoardIds
+    );
 
     if (previousActiveMessages.length > 0) {
       await db
@@ -960,142 +962,6 @@ export const telegramBotService = {
     firstName: string;
   }): Promise<void> {
     await sendClubSettingsUpdatedNotification(params);
-  },
-
-  /**
-   * Publishes a periodic Top-10 Club Standings summary to the club's topic thread
-   * and updates `clubs.lastLeaderboardAt`.
-   */
-  async publishClubLeaderboardToTopic(chatId: string): Promise<boolean> {
-    if (!env.TELEGRAM_BOT_TOKEN) return false;
-
-    const [club] = await db
-      .select()
-      .from(clubs)
-      .where(eq(clubs.chatId, chatId))
-      .limit(1);
-
-    if (!club || club.status !== "active") return false;
-
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const rows = await db
-      .select({
-        attempt: challengeAttempts,
-        user: users,
-      })
-      .from(challengeAttempts)
-      .leftJoin(users, eq(challengeAttempts.telegramId, users.telegramId))
-      .where(
-        and(
-          eq(challengeAttempts.chatId, chatId),
-          gte(challengeAttempts.updatedAt, sevenDaysAgo)
-        )
-      );
-
-    const statsByUser = new Map<
-      string,
-      {
-        displayName: string;
-        points: number;
-        solved: number;
-        attempts: number;
-        timeMs: number;
-      }
-    >();
-
-    for (const r of rows) {
-      const att = r.attempt;
-      if (!att.solved) continue;
-      const usr = r.user;
-      const displayName = escapeHtml(usr?.firstName || att.username);
-
-      let entry = statsByUser.get(att.telegramId);
-      if (!entry) {
-        entry = {
-          displayName,
-          points: 0,
-          solved: 0,
-          attempts: 0,
-          timeMs: 0,
-        };
-        statsByUser.set(att.telegramId, entry);
-      }
-
-      entry.points += calculateAttemptPoints(att.solved, att.attempts);
-      entry.solved += 1;
-      entry.attempts += att.attempts;
-      entry.timeMs += Number(att.solvedTimeMs ?? 0);
-    }
-
-    const sorted = Array.from(statsByUser.values()).sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      if (a.timeMs !== b.timeMs) return a.timeMs - b.timeMs;
-      return a.attempts - b.attempts;
-    });
-
-    if (sorted.length === 0) {
-      await db
-        .update(clubs)
-        .set({ lastLeaderboardAt: new Date(), updatedAt: new Date() })
-        .where(eq(clubs.chatId, chatId));
-      return false;
-    }
-
-    const top10 = sorted.slice(0, 10);
-    const lang = normalizeLang(club.language);
-    const lines = top10.map((item, idx) => {
-      const medal =
-        idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`;
-      const pts = roundPoints(item.points);
-      const sec = Math.round((item.timeMs / 1000) * 10) / 10;
-      if (lang === "en") {
-        return `${medal} <b>${item.displayName}</b> — <b>${pts} pts</b> (${item.solved} solved, ${sec}s)`;
-      }
-      if (lang === "de") {
-        return `${medal} <b>${item.displayName}</b> — <b>${pts} Pkt.</b> (${item.solved} gelöst, ${sec}s)`;
-      }
-      return `${medal} <b>${item.displayName}</b> — <b>${pts} очк.</b> (решено: ${item.solved}, ${sec}с)`;
-    });
-
-    const text =
-      lang === "en"
-        ? `🏆 <b>${club.title} — Top Players</b>\n\n${lines.join("\n")}`
-        : lang === "de"
-          ? `🏆 <b>${club.title} — Top-Spieler</b>\n\n${lines.join("\n")}`
-          : `🏆 <b>${club.title} — Лидеры клуба</b>\n\n${lines.join("\n")}`;
-
-    const recordsStartParam = encodeClubLeaderboardStartParam(chatId);
-    const payload: Record<string, unknown> = {
-      chat_id: chatId,
-      parse_mode: "HTML",
-      text,
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text:
-                lang === "en"
-                  ? "🏆 FULL LEADERBOARD"
-                  : lang === "de"
-                    ? "🏆 GESAMTE RANGLISTE"
-                    : "🏆 ВСЯ ТАБЛИЦА",
-              url: `https://t.me/${env.BOT_USERNAME}?startapp=${recordsStartParam}`,
-            },
-          ],
-        ],
-      },
-    };
-    if (club.topicThreadId > 0) {
-      payload.message_thread_id = club.topicThreadId;
-    }
-
-    const res = await callTelegramJson("sendMessage", payload);
-    await db
-      .update(clubs)
-      .set({ lastLeaderboardAt: new Date(), updatedAt: new Date() })
-      .where(eq(clubs.chatId, chatId));
-
-    return res.ok;
   },
 
   /**
@@ -2400,24 +2266,6 @@ async function runScheduledClubsTick(): Promise<void> {
           `[TelegramBot] Scheduled publish failed for club ${club.chatId}:`,
           err
         );
-      }
-
-      if (club.leaderboardCronDays > 0) {
-        const cronIntervalMs = club.leaderboardCronDays * 24 * 60 * 60 * 1000;
-        const shouldPostLeaderboard =
-          !club.lastLeaderboardAt ||
-          now.getTime() - new Date(club.lastLeaderboardAt).getTime() >=
-            cronIntervalMs;
-        if (shouldPostLeaderboard) {
-          try {
-            await telegramBotService.publishClubLeaderboardToTopic(club.chatId);
-          } catch (err) {
-            console.error(
-              `[TelegramBot] Scheduled leaderboard post failed for club ${club.chatId}:`,
-              err
-            );
-          }
-        }
       }
     }
   } catch (err) {

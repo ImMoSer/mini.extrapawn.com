@@ -2,15 +2,12 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  ALL_AUTO_DELETE_SECONDS,
   ALL_DAYS_OF_WEEK,
   CLUB_TIMEZONE_OPTIONS,
   createDefaultWeeklySchedule,
   getClubTimezoneOptionLabel,
-  normalizeAutoDeleteSeconds,
   normalizeWeeklySchedule,
   type AppLanguage,
-  type AutoDeleteSeconds,
   type ChallengeDiscipline,
   type ClubSummaryDTO,
   type DayOfWeekKey,
@@ -58,7 +55,6 @@ const activeDay = ref<DayOfWeekKey>(detectTodayKey());
 const weeklySchedule = ref<WeeklyScheduleConfig>(createDefaultWeeklySchedule());
 const clubLanguage = ref<AppLanguage>("ru");
 const clubTimezone = ref<string>("Europe/Berlin");
-const autoDeleteSeconds = ref<AutoDeleteSeconds>(60);
 const savedSnapshot = ref<string>("");
 
 const hasCustomTimezone = computed(
@@ -71,7 +67,6 @@ function buildSettingsSnapshot(): string {
   return JSON.stringify({
     language: clubLanguage.value,
     timezone: clubTimezone.value,
-    auto_delete_seconds: autoDeleteSeconds.value,
     weekly_schedule: weeklySchedule.value,
   });
 }
@@ -99,17 +94,6 @@ function hasOverlapInDay(day: DayOfWeekKey): boolean {
 const overlappingDays = computed<DayOfWeekKey[]>(() =>
   ALL_DAYS_OF_WEEK.filter((d) => hasOverlapInDay(d))
 );
-
-function formatAutoDeleteOption(sec: AutoDeleteSeconds): string {
-  if (sec === 0) return t("settings_auto_delete_off");
-  return `${sec}${t("settings_sec_short")}`;
-}
-
-function handleAutoDeleteChange(rawValue: string) {
-  autoDeleteSeconds.value = normalizeAutoDeleteSeconds(
-    Number.parseInt(rawValue, 10)
-  );
-}
 
 async function toggleMasterActive() {
   if (isTogglingActive.value || !club.value) return;
@@ -155,9 +139,6 @@ async function loadClub() {
     weeklySchedule.value = normalizeWeeklySchedule(res.weekly_schedule);
     clubLanguage.value = res.language || "ru";
     clubTimezone.value = res.timezone || "Europe/Berlin";
-    autoDeleteSeconds.value = normalizeAutoDeleteSeconds(
-      res.auto_delete_seconds
-    );
     savedSnapshot.value = buildSettingsSnapshot();
   } finally {
     isLoading.value = false;
@@ -184,9 +165,7 @@ async function saveSettings(): Promise<boolean> {
           is_active: isClubActive.value,
           language: clubLanguage.value,
           timezone: clubTimezone.value,
-          auto_delete_seconds: autoDeleteSeconds.value,
           weekly_schedule: weeklySchedule.value,
-          leaderboard_cron_days: club.value?.leaderboard_cron_days ?? 3,
         }),
       }
     );
@@ -195,9 +174,6 @@ async function saveSettings(): Promise<boolean> {
     weeklySchedule.value = normalizeWeeklySchedule(updated.weekly_schedule);
     clubLanguage.value = updated.language || "ru";
     clubTimezone.value = updated.timezone || "Europe/Berlin";
-    autoDeleteSeconds.value = normalizeAutoDeleteSeconds(
-      updated.auto_delete_seconds
-    );
     savedSnapshot.value = buildSettingsSnapshot();
     statusBanner.value = { type: "success", text: t("settings_saved_ok") };
     return true;
@@ -366,55 +342,26 @@ onMounted(() => {
       />
     </section>
 
-    <!-- Bot Language & Notification Auto-Delete Timer -->
-    <section class="glass flex flex-col gap-3.5 p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <span class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-          {{ t("settings_bot_language") }}
-        </span>
-        <div class="flex items-center gap-2">
-          <button
-            v-for="l in ['ru', 'en', 'de'] as const"
-            :key="l"
-            type="button"
-            class="rounded-md border px-3.5 py-1.5 text-xs font-bold uppercase transition"
-            :class="
-              clubLanguage === l
-                ? 'border-brand bg-brand/15 text-brand'
-                : 'border-border bg-elevated text-text-secondary'
-            "
-            @click="clubLanguage = l"
-          >
-            {{ l }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Configurable Auto-Delete Timer (0 / 30 / 60 / 180 / 300s, default 60s) -->
-      <div class="flex flex-col gap-1.5 rounded-lg border border-border bg-elevated p-3">
-        <label class="flex flex-wrap items-center justify-between gap-2">
-          <span class="text-xs font-bold text-text-primary">
-            ⏱ {{ t("settings_auto_delete_label") }}
-          </span>
-          <select
-            :value="autoDeleteSeconds"
-            class="rounded-md border border-border bg-surface px-3 py-1.5 font-condensed text-xs font-bold text-brand focus:border-brand focus:outline-none"
-            @change="
-              handleAutoDeleteChange(($event.target as HTMLSelectElement).value)
-            "
-          >
-            <option
-              v-for="sec in ALL_AUTO_DELETE_SECONDS"
-              :key="sec"
-              :value="sec"
-            >
-              {{ formatAutoDeleteOption(sec) }}
-            </option>
-          </select>
-        </label>
-        <p class="text-[11px] text-text-secondary">
-          {{ t("settings_auto_delete_hint") }}
-        </p>
+    <!-- Bot Language -->
+    <section class="glass flex flex-wrap items-center justify-between gap-3 p-4">
+      <span class="text-xs font-bold tracking-wider text-text-secondary uppercase">
+        {{ t("settings_bot_language") }}
+      </span>
+      <div class="flex items-center gap-2">
+        <button
+          v-for="l in ['ru', 'en', 'de'] as const"
+          :key="l"
+          type="button"
+          class="rounded-md border px-3.5 py-1.5 text-xs font-bold uppercase transition"
+          :class="
+            clubLanguage === l
+              ? 'border-brand bg-brand/15 text-brand'
+              : 'border-border bg-elevated text-text-secondary'
+          "
+          @click="clubLanguage = l"
+        >
+          {{ l }}
+        </button>
       </div>
     </section>
 

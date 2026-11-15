@@ -208,8 +208,8 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
           .update(clubs)
           .set({
             memberCount: 0,
+            topicMessageIds: [],
             lastPublishedAt: null,
-            lastLeaderboardAt: null,
             updatedAt: new Date(),
           })
           .where(eq(clubs.chatId, chatId))

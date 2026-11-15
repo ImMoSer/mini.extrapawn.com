@@ -8,10 +8,10 @@ import { env } from "../config/env.js";
 import { db } from "../db/index.js";
 import { clubChallenges, clubs } from "../db/schema.js";
 import {
+  appendClubTopicMessageId,
   callTelegramJson,
   escapeHtml,
   normalizeLang,
-  scheduleAutoDeleteMessage,
 } from "./telegramApi.js";
 
 export interface NotifyChallengeSolvedParams {
@@ -28,10 +28,10 @@ export interface NotifyChallengeSolvedParams {
 }
 
 /**
- * Sends the reply notification to the club's topic thread when a player solves a challenge:
+ * Sends the notification to the club's topic thread when a player solves a challenge:
  * - For `tactics`: "{{username}} 🤝\nПопыток - {{attempts}}\nСекунд - {{seconds}}" + [🏆 ТАБЛИЦА]
- * - For non-tactics: "{{username}} 🤝\nПопыток - {{attempts}}\nХодов - {{moves}}" + [Игра | ▶▶]
- * Auto-deleted according to `club.autoDeleteSeconds` (`0` = never, `30 | 60 | 180 | 300`s).
+ * - For non-tactics: "{{username}} 🤝\nПопыток - {{attempts}}\nХодов - {{moves}}" + [▶ | ▶▶]
+ * Stored in `clubs.topic_message_ids` and batch-deleted when the next challenge is published.
  */
 export async function sendChallengeSolvedNotification(
   params: NotifyChallengeSolvedParams
@@ -96,25 +96,23 @@ export async function sendChallengeSolvedNotification(
           ? `${params.username} 🤝\nVersuche - ${params.attempts}\nZüge - ${safeMoves}`
           : `${params.username} 🤝\nПопыток - ${params.attempts}\nХодов - ${safeMoves}`;
 
-    const gameBtnLabel = lang === "ru" ? "Игра" : "Game";
-    const fastBtnLabel = "▶▶";
     const gameStartParam = encodeReplayStartParam("game", params.attemptId);
     const fastStartParam = encodeReplayStartParam("fast", params.attemptId);
 
     inlineButtonsRow = params.hasMoveTimings
       ? [
           {
-            text: gameBtnLabel,
+            text: "▶",
             url: `https://t.me/${env.BOT_USERNAME}?startapp=${gameStartParam}`,
           },
           {
-            text: fastBtnLabel,
+            text: "▶▶",
             url: `https://t.me/${env.BOT_USERNAME}?startapp=${fastStartParam}`,
           },
         ]
       : [
           {
-            text: fastBtnLabel,
+            text: "▶▶",
             url: `https://t.me/${env.BOT_USERNAME}?startapp=${fastStartParam}`,
           },
         ];
@@ -142,16 +140,12 @@ export async function sendChallengeSolvedNotification(
     "sendMessage",
     payload
   );
-  scheduleAutoDeleteMessage(
-    params.chatId,
-    sendRes.result?.message_id,
-    club.autoDeleteSeconds
-  );
+  await appendClubTopicMessageId(params.chatId, sendRes.result?.message_id);
 }
 
 /**
  * Sends a concise notification to the club's topic thread when an admin saves club settings,
- * obeying the club's `autoDeleteSeconds` timer.
+ * recording its `message_id` for cleanup when the next challenge is published.
  */
 export async function sendClubSettingsUpdatedNotification(params: {
   chatId: string;
@@ -190,9 +184,5 @@ export async function sendClubSettingsUpdatedNotification(params: {
     "sendMessage",
     payload
   );
-  scheduleAutoDeleteMessage(
-    params.chatId,
-    sendRes.result?.message_id,
-    club.autoDeleteSeconds
-  );
+  await appendClubTopicMessageId(params.chatId, sendRes.result?.message_id);
 }

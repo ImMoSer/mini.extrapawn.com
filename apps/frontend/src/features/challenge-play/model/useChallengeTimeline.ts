@@ -14,7 +14,7 @@ import {
 } from "@/entities/chess/lib/chessPosition";
 import { playAppliedMoveSound, playChessSound } from "@/shared/lib/sound";
 
-const FAST_REPLAY_DELAY_MS = 500;
+const FAST_REPLAY_DELAY_MS = 200;
 const BOT_NORMALIZED_DELAY_MS = 250;
 const MIN_USER_REPLAY_DELAY_MS = 100;
 const MAX_USER_REPLAY_DELAY_MS = 10_000;

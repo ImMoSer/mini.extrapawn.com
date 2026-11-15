@@ -1,6 +1,5 @@
 import { and, count, eq } from "drizzle-orm";
 import {
-  normalizeAutoDeleteSeconds,
   normalizeWeeklySchedule,
   type AppLanguage,
   type ChallengeDifficulty,
@@ -50,7 +49,6 @@ export async function mapClubRowToSummaryDTO(
     member_count: row.memberCount,
     language: (row.language || "ru") as AppLanguage,
     timezone: row.timezone,
-    auto_delete_seconds: normalizeAutoDeleteSeconds(row.autoDeleteSeconds),
     status,
     is_active: isActive,
     auto_paused: Boolean(row.autoPaused),
@@ -58,7 +56,6 @@ export async function mapClubRowToSummaryDTO(
     is_admin: isAdmin,
     weekly_schedule: normalizeWeeklySchedule(row.weeklySchedule),
     schedule_times: row.scheduleTimes || ["09:00", "15:00", "20:00"],
-    leaderboard_cron_days: row.leaderboardCronDays,
     filter_disciplines: (row.filterDisciplines || [
       "tactics",
       "theoretical_endgames",

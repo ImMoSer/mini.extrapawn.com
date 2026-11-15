@@ -56,7 +56,10 @@ export const clubs = teleAppSchema.table("clubs", {
   memberCount: integer("member_count").notNull().default(0),
   language: text("language").notNull().default("ru"),
   timezone: text("timezone").notNull().default("Europe/Berlin"),
-  autoDeleteSeconds: integer("auto_delete_seconds").notNull().default(60),
+  topicMessageIds: integer("topic_message_ids")
+    .array()
+    .notNull()
+    .default([]),
   status: text("status").notNull().default("active"),
   isActive: boolean("is_active").notNull().default(true),
   autoPaused: boolean("auto_paused").notNull().default(false),
@@ -71,7 +74,6 @@ export const clubs = teleAppSchema.table("clubs", {
     .array()
     .notNull()
     .default(["09:00", "15:00", "20:00"]),
-  leaderboardCronDays: integer("leaderboard_cron_days").notNull().default(3),
   filterDisciplines: text("filter_disciplines")
     .array()
     .notNull()
@@ -92,7 +94,6 @@ export const clubs = teleAppSchema.table("clubs", {
     .default(["all"]),
   filterObjective: text("filter_objective").notNull().default("all"),
   lastPublishedAt: timestamp("last_published_at", { withTimezone: true }),
-  lastLeaderboardAt: timestamp("last_leaderboard_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

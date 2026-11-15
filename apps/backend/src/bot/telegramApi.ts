@@ -1,5 +1,8 @@
-import { normalizeAutoDeleteSeconds, type AppLanguage } from "shared";
+import { eq } from "drizzle-orm";
+import type { AppLanguage } from "shared";
 import { env } from "../config/env.js";
+import { db, sqlClient } from "../db/index.js";
+import { clubs } from "../db/schema.js";
 
 export interface TelegramApiResponse<T> {
   ok: boolean;
@@ -78,19 +81,104 @@ export async function deleteTelegramMessage(
 }
 
 /**
- * Schedules automatic deletion of a club topic notification after `rawSeconds`
- * (`30 | 60 | 180 | 300`). When `0` ("Off" / "Нет"), the message is kept permanently.
+ * Deletes up to N messages in batches of 100 via Telegram's `deleteMessages`.
+ * Falls back to individual `deleteMessage` calls if a batch contains >48h-old IDs.
  */
-export function scheduleAutoDeleteMessage(
+export async function deleteTelegramMessagesBatch(
   chatId: string,
-  messageId: number | undefined | null,
-  rawSeconds: unknown
-): void {
-  if (!messageId) return;
-  const seconds = normalizeAutoDeleteSeconds(rawSeconds);
-  if (seconds <= 0) return;
+  messageIds: readonly number[]
+): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN) return;
+  const uniqueIds = Array.from(
+    new Set(messageIds.filter((id) => Number.isInteger(id) && id > 0))
+  );
+  if (uniqueIds.length === 0) return;
 
-  setTimeout(() => {
-    void deleteTelegramMessage(chatId, messageId);
-  }, seconds * 1000);
+  for (let i = 0; i < uniqueIds.length; i += 100) {
+    const chunk = uniqueIds.slice(i, i + 100);
+    if (chunk.length === 1 && chunk[0]) {
+      await deleteTelegramMessage(chatId, chunk[0]);
+      continue;
+    }
+    try {
+      const res = await callTelegramJson<boolean>("deleteMessages", {
+        chat_id: chatId,
+        message_ids: chunk,
+      });
+      if (!res.ok) {
+        for (const id of chunk) {
+          await deleteTelegramMessage(chatId, id);
+        }
+      }
+    } catch {
+      for (const id of chunk) {
+        await deleteTelegramMessage(chatId, id);
+      }
+    }
+  }
+}
+
+/**
+ * Atomically records a transient bot message ID (`notifyChallengeSolved`, `notifyClubSettingsUpdated`)
+ * in `tele_app.clubs.topic_message_ids` so it is deleted when the next challenge is published.
+ */
+export async function appendClubTopicMessageId(
+  chatId: string,
+  messageId: number | undefined | null
+): Promise<void> {
+  if (!messageId || messageId <= 0) return;
+  await sqlClient`
+    UPDATE tele_app.clubs
+    SET topic_message_ids = array_append(topic_message_ids, ${messageId})
+    WHERE chat_id = ${chatId}
+  `;
+}
+
+/**
+ * Deletes all transient topic messages (`topic_message_ids` + previous challenge board IDs)
+ * posted prior to `newChallengeMessageId`, preserving any concurrent message posted after it.
+ */
+export async function flushClubTopicMessagesOnPublish(
+  chatId: string,
+  newChallengeMessageId: number | null,
+  extraMessageIds: readonly number[]
+): Promise<void> {
+  const [clubRow] = await db
+    .select({
+      topicMessageIds: clubs.topicMessageIds,
+      autoPauseMessageId: clubs.autoPauseMessageId,
+    })
+    .from(clubs)
+    .where(eq(clubs.chatId, chatId))
+    .limit(1);
+
+  const storedIds = clubRow?.topicMessageIds ?? [];
+  const pauseId = clubRow?.autoPauseMessageId
+    ? [clubRow.autoPauseMessageId]
+    : [];
+  const allCandidates = [...storedIds, ...pauseId, ...extraMessageIds];
+
+  const idsToDelete = allCandidates.filter((id) => {
+    if (!Number.isInteger(id) || id <= 0) return false;
+    if (newChallengeMessageId && id >= newChallengeMessageId) return false;
+    return true;
+  });
+
+  await deleteTelegramMessagesBatch(chatId, idsToDelete);
+
+  if (newChallengeMessageId && newChallengeMessageId > 0) {
+    await sqlClient`
+      UPDATE tele_app.clubs
+      SET topic_message_ids = COALESCE(
+        (SELECT array_agg(x) FROM unnest(topic_message_ids) AS x WHERE x >= ${newChallengeMessageId}),
+        '{}'::integer[]
+      )
+      WHERE chat_id = ${chatId}
+    `;
+  } else {
+    await db
+      .update(clubs)
+      .set({ topicMessageIds: [] })
+      .where(eq(clubs.chatId, chatId));
+  }
 }

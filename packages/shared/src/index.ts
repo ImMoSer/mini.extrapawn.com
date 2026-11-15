@@ -42,22 +42,6 @@ export const ALL_SCHEDULE_INTERVALS: readonly ScheduleIntervalMinutes[] = [
   10, 15, 30, 60,
 ] as const;
 
-export type AutoDeleteSeconds = 0 | 30 | 60 | 180 | 300;
-
-export const ALL_AUTO_DELETE_SECONDS: readonly AutoDeleteSeconds[] = [
-  0, 30, 60, 180, 300,
-] as const;
-
-export function normalizeAutoDeleteSeconds(val: unknown): AutoDeleteSeconds {
-  if (
-    typeof val === "number" &&
-    (ALL_AUTO_DELETE_SECONDS as readonly number[]).includes(val)
-  ) {
-    return val as AutoDeleteSeconds;
-  }
-  return 60;
-}
-
 export type ReplaySpeedMode = "game" | "fast";
 
 export type ChallengeDiscipline =
@@ -655,7 +639,6 @@ export interface ClubSummaryDTO {
   member_count: number;
   language: AppLanguage;
   timezone: string;
-  auto_delete_seconds: AutoDeleteSeconds;
   status: ClubStatus;
   is_active: boolean;
   auto_paused: boolean;
@@ -663,7 +646,6 @@ export interface ClubSummaryDTO {
   is_admin: boolean;
   weekly_schedule: WeeklyScheduleConfig;
   schedule_times: string[];
-  leaderboard_cron_days: number;
   filter_disciplines: ChallengeDiscipline[];
   filter_difficulties: ChallengeDifficulty[];
   filter_focus_group: string;
@@ -804,10 +786,8 @@ export interface UpdateClubSettingsRequest {
   is_active: boolean;
   language: AppLanguage;
   timezone: string;
-  auto_delete_seconds?: AutoDeleteSeconds;
   status?: "active" | "paused";
   weekly_schedule: WeeklyScheduleConfig;
-  leaderboard_cron_days: number;
   schedule_times?: string[];
   filter_disciplines?: ChallengeDiscipline[];
   filter_difficulties?: ChallengeDifficulty[];

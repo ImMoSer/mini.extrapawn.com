@@ -17,7 +17,7 @@
    - **Авторизация:** Исключительно через Telegram WebApp (`Telegram.WebApp.initData` с криптографической проверкой `HMAC-SHA256`), мгновенный вход в 0 кликов.
    - **BOSS платформы (SuperAdmin):** Пользователь с `telegram_id = "5106981885"` имеет эксклюзивный доступ к панели `/super-admin` для мониторинга всех подключённых клубов, блокировки/разблокировки (`blocked` / `active`), принудительного выхода бота из групп и рассылки промо-кампаний.
    - **Дефолтный (родной) клуб:** Супергруппа **EXTRAPAWNCLUB** (`chat_id = "-1002255301933"`, `https://t.me/EXTRAPAWNCLUB/293770`, топик `ExtraPawnTeleBot`, `message_thread_id = 293770`, владелец `5106981885`). Автоматически создаётся при старте бэкенда (`bootstrapDatabase()`).
-   - **Полная автономность от `n8n` и `stockfish_server`:** Бэкенд Mini App самостоятельно управляет ботом `@ExtraPawnTeleBot` (через нативный `fetch` к Telegram Bot API), расписаниями клубов, рендерингом PNG-картинок стартовой позиции (`board.png` через `@resvg/resvg-js`), автоочисткой предыдущих челленджей (`deleteMessage`) и настраиваемым автоудалением уведомлений бота в чате (`0 / 30 / 60 / 180 / 300` с, по умолчанию `60` с).
+   - **Полная автономность от `n8n` и `stockfish_server`:** Бэкенд Mini App самостоятельно управляет ботом `@ExtraPawnTeleBot` (через нативный `fetch` к Telegram Bot API), расписаниями клубов, рендерингом PNG-картинок стартовой позиции (`board.png` через `@resvg/resvg-js`) и пакетной автоочисткой предыдущей задачи и всех её уведомлений (`deleteMessages`) при выходе следующего челленджа.
 
 ---
 
@@ -39,8 +39,8 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── plugins/
 │   │       │   └── telegramAuth.ts           # Проверка HMAC-SHA256 Telegram initData + upsert юзера
 │   │       ├── bot/
-│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API, deleteMessage, scheduleAutoDeleteMessage
-│   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([Игра | ▶▶]) и настройках
+│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API, deleteMessages, накопление/сброс topic_message_ids
+│   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([▶ | ▶▶]) и настройках
 │   │       │   └── telegramBot.service.ts    # Long-polling бот, расписание клубов, публикация и авто-пауза
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Генератор PNG 600x600 (SVG -> PNG через Resvg)
@@ -114,7 +114,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 1. **`tele_app.users`** (`telegram_id text PRIMARY KEY`):
    - Поля: `username`, `first_name`, `last_name`, `avatar_url`, `language_code` (`'ru' | 'en' | 'de'`), `is_superadmin`, `created_at`, `updated_at`.
 2. **`tele_app.clubs`** (`chat_id text PRIMARY KEY`):
-   - Поля: `title`, `username`, `invite_link`, `owner_telegram_id`, `topic_thread_id`, `member_count`, `language`, `timezone`, `auto_delete_seconds` (`integer`, `0 | 30 | 60 | 180 | 300`, по умолчанию `60`), `is_active`, `weekly_schedule` (`jsonb`), `auto_paused`, `auto_pause_challenge_id`, `auto_pause_message_id`, `status` (`'active' | 'paused' | 'blocked' | 'bot_removed' | 'below_threshold'`), `blocked_reason`, `is_default`, `schedule_times` (`jsonb`), `leaderboard_cron_days` (`integer`), `filter_disciplines` (`jsonb`), `filter_difficulties` (`jsonb`), `filter_focus_group`, `filter_focus_keys` (`jsonb`), `filter_objective`, `last_published_at`, `last_leaderboard_at`, `terms_accepted_at`, `created_at`, `updated_at`.
+   - Поля: `title`, `username`, `invite_link`, `owner_telegram_id`, `topic_thread_id`, `member_count`, `language`, `timezone`, `topic_message_ids` (`integer[]` — ID временных уведомлений текущего цикла задачи для пакетного удаления при публикации следующей), `is_active`, `weekly_schedule` (`jsonb`), `auto_paused`, `auto_pause_challenge_id`, `auto_pause_message_id`, `status` (`'active' | 'paused' | 'blocked' | 'bot_removed' | 'below_threshold'`), `blocked_reason`, `schedule_times` (`text[]`), `filter_disciplines` (`text[]`), `filter_difficulties` (`text[]`), `filter_focus_group`, `filter_focus_keys` (`text[]`), `filter_objective`, `last_published_at`, `terms_accepted_at`, `created_at`, `updated_at`.
 3. **`tele_app.club_admins`** (`PRIMARY KEY (chat_id, telegram_id)`):
    - Права управления настройками клуба (`role`: `'owner' | 'admin'`). Строго синхронизируется с Telegram: в таблицу попадают **только** владелец супергруппы (`creator` -> `'owner'`) и администраторы с правом `can_manage_topics === true` (`administrator` -> `'admin'`). Синхронизация трёхуровневая: мгновенно по событиям `chat_member`, при подключении/фоновом реконсиле через `getChatAdministrators` (раз в 30 мин) и в реальном времени через `getChatMember` при открытии/сохранении настроек.
 4. **`tele_app.club_challenges`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition)`):
@@ -170,14 +170,12 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
    - Перед публикацией по расписанию бот проверяет, есть ли в клубе хотя бы один активный челлендж, который ещё никто не решил и не сдался (`0` записей со статусом `solved` или `surrendered`).
    - Если такой челлендж висит, бот **не публикует** новую задачу, переходит в `auto_paused = TRUE` и **один раз** отправляет reply на этот нерешённый челлендж с уведомлением о паузе (без повторного спама каждые 10 минут).
    - Как только любой участник решает челлендж или сдаётся, флаг `auto_paused` автоматически сбрасывается и расписание продолжается.
-3. **Автоочистка чата при публикации и решении (без `pinChatMessage`):**
-   - При публикации нового челленджа (`publishChallengeToClub`) бот рендерит `board.png` (`600x600`), отправляет фото в тему клуба с кнопками `🔥 ЗАТАЩИТЬ` и `🏆 ТАБЛИЦА`, и **удаляет сообщение предыдущего челленджа** (`deleteMessage`), сбрасывая у старых записей `tg_message_id = NULL`. Таким образом в теме клуба всегда висит только один актуальный челлендж, и закрепление (`pinChatMessage`) не требуется.
-   - При успешном решении задачи игроком бот отправляет текстовый ответ (`reply_parameters.message_id = tg_message_id`) в тему клуба:
+3. **Пакетная автоочистка чата при выходе новой задачи (без таймеров и без `pinChatMessage`):**
+   - При успешном решении задачи игроком (включая сегодняшние задачи из `GO`) бот отправляет ответ в тему клуба и сохраняет его `message_id` в `tele_app.clubs.topic_message_ids` (аналогично сохраняется `message_id` уведомления `⚙️ изменил настройки`):
      - для **`tactics`**: `Попыток - N / Секунд - T` и инлайн-кнопка `[ 🏆 ТАБЛИЦА ]`;
-     - для **всех остальных дисциплин** (`theoretical_endgames`, `practical_chess`, `finishhim`): `Попыток - N / Ходов - M` (число ходов игрока `Math.ceil(plies / 2)`) и в одной строке две кнопки воспроизведения партии: `[ Игра ]` (`[ Game ]` в EN/DE — натуральная скорость с потолком `10 с` на обдумывание игрока и `250 мс` на ответ бота) и `[ ▶▶ ]` (`500 мс` между ходами; если у старой записи нет `move_times_ms`, рендерится только `[ ▶▶ ]`).
-   - **Настраиваемое автоудаление (`auto_delete_seconds`):** временные уведомления бота (`notifyChallengeSolved`, `notifyClubSettingsUpdated`) удаляются через `auto_delete_seconds` (`0` = не удалять, `30`, `60` по умолчанию, `180`, `300` секунд). Сообщение авто-паузы (`auto_pause_message_id`) этим таймером не затрагивается и всегда удаляется мгновенно при первом решении или сдаче (`clearAutoPause`).
-   - Раз в `leaderboard_cron_days` дней планировщик публикует сводку Топ-10 игроков (`publishClubLeaderboardToTopic`).
-   - **30-дневная ротация БД (`purgeExpiredThirtyDayRecords`):** раз в час планировщик автоматически удаляет из `tele_app.challenge_attempts` и `tele_app.club_challenges` записи старше 30 дней, удерживая размер базы данных компактным и синхронизированным с 30-дневным зачётом.
+     - для **всех остальных дисциплин** (`theoretical_endgames`, `practical_chess`, `finishhim`): `Попыток - N / Ходов - M` (число ходов игрока `Math.ceil(plies / 2)`) и в одной строке две кнопки воспроизведения партии: **`[ ▶ ]`** (натуральная скорость с потолком `10 с` на обдумывание игрока и `250 мс` на ответ бота) и **`[ ▶▶ ]`** (`200 мс` между ходами; если у старой записи нет `move_times_ms`, рендерится только `[ ▶▶ ]`). Анимация фигур на доске во всех режимах — `130 мс`.
+   - При публикации нового челленджа (`publishChallengeToClub`) бот отправляет фото новой доски (`600x600`) и **пакетно удаляет (`deleteMessages`) предыдущую доску + все накопленные в `topic_message_ids` уведомления предыдущего цикла** (не затрагивая приветственное сообщение топика и промо-анонсы BOSSа). Сообщение авто-паузы (`auto_pause_message_id`) по-прежнему удаляется мгновенно при первом решении или сдаче (`clearAutoPause`).
+   - **7-дневная ротация БД (`purgeExpiredSevenDayRecords`):** раз в час планировщик автоматически удаляет из `tele_app.challenge_attempts` и `tele_app.club_challenges` записи старше 7 дней, удерживая размер базы данных компактным и синхронизированным с 7-дневным зачётом.
 
 ### 5.4. Формула начисления очков (`1 / attempts`)
 
