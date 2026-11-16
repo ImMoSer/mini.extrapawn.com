@@ -18,7 +18,10 @@ import {
   computeViewerNextActive,
   ensureClubExists,
 } from "./challengeQueries.service.js";
-import { puzzleClientService } from "./puzzleClient.service.js";
+import {
+  puzzleClientService,
+  type NormalizedChallengePuzzle,
+} from "./puzzleClient.service.js";
 
 const MIN_MOVE_TIME_MS = 50;
 const MAX_MOVE_TIME_MS = 10_000;
@@ -114,23 +117,25 @@ export async function findChallengeAttemptRef(
   };
 }
 
-export async function buildChallengeStateDTO(params: {
+export type ClubChallengeRow = typeof clubChallenges.$inferSelect;
+
+export interface ResolvedChallengeSnapshot {
+  challengeRow: ClubChallengeRow;
+  normalized?: NormalizedChallengePuzzle;
+}
+
+/**
+ * Snapshot-First lookup: published challenges in `tele_app.club_challenges` already hold
+ * the complete immutable board & solution snapshot, so they resolve in 0 HTTP calls
+ * and remain 100% playable even if `puzzle_service` rotates its CSV catalog.
+ */
+export async function resolveChallengeSnapshot(params: {
   chatId: string;
   discipline: ChallengeDiscipline;
   puzzleId: string;
   edition: string;
-  viewerTelegramId: string;
-  viewerDisplayName: string;
-  viewerIsSuperadmin: boolean;
-}): Promise<ChallengeStateDTO> {
-  const club = await ensureClubExists(params.chatId);
-
-  const normalized = await puzzleClientService.getPuzzleById(
-    params.discipline,
-    params.puzzleId
-  );
-
-  let [challengeRow] = await db
+}): Promise<ResolvedChallengeSnapshot> {
+  const [existing] = await db
     .select()
     .from(clubChallenges)
     .where(
@@ -143,47 +148,88 @@ export async function buildChallengeStateDTO(params: {
     )
     .limit(1);
 
-  if (!challengeRow) {
-    const [inserted] = await db
-      .insert(clubChallenges)
-      .values({
-        chatId: params.chatId,
-        discipline: params.discipline,
-        puzzleId: params.puzzleId,
-        edition: params.edition,
-        difficulty: normalized.difficulty,
-        botEngine: normalized.botEngine,
-        initialFen: normalized.initialFen,
-        puzzleFen: normalized.puzzleFen,
-        userColor: normalized.userColor,
-        firstMove: normalized.firstMove,
-        strategy: normalized.strategy,
-        objective: normalized.objective,
-        tacticalSolution: normalized.tacticalSolution,
-        domain: normalized.domain,
-        category: normalized.category,
-      })
-      .onConflictDoNothing()
-      .returning();
-
-    if (inserted) {
-      challengeRow = inserted;
-    } else {
-      const [refetched] = await db
-        .select()
-        .from(clubChallenges)
-        .where(
-          and(
-            eq(clubChallenges.chatId, params.chatId),
-            eq(clubChallenges.discipline, params.discipline),
-            eq(clubChallenges.puzzleId, params.puzzleId),
-            eq(clubChallenges.edition, params.edition)
-          )
-        )
-        .limit(1);
-      challengeRow = refetched;
+  if (existing) {
+    if (!existing.initialFen || !existing.puzzleFen) {
+      throw new Error(
+        `[ChallengeState] Corrupt snapshot in club_challenges id=${existing.id}: missing FEN`
+      );
     }
+    return { challengeRow: existing };
   }
+
+  const normalized = await puzzleClientService.getPuzzleById(
+    params.discipline,
+    params.puzzleId
+  );
+
+  const [inserted] = await db
+    .insert(clubChallenges)
+    .values({
+      chatId: params.chatId,
+      discipline: params.discipline,
+      puzzleId: params.puzzleId,
+      edition: params.edition,
+      difficulty: normalized.difficulty,
+      botEngine: normalized.botEngine,
+      initialFen: normalized.initialFen,
+      puzzleFen: normalized.puzzleFen,
+      userColor: normalized.userColor,
+      firstMove: normalized.firstMove,
+      strategy: normalized.strategy,
+      objective: normalized.objective,
+      tacticalSolution: normalized.tacticalSolution,
+      domain: normalized.domain,
+      category: normalized.category,
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (inserted) {
+    return { challengeRow: inserted, normalized };
+  }
+
+  const [refetched] = await db
+    .select()
+    .from(clubChallenges)
+    .where(
+      and(
+        eq(clubChallenges.chatId, params.chatId),
+        eq(clubChallenges.discipline, params.discipline),
+        eq(clubChallenges.puzzleId, params.puzzleId),
+        eq(clubChallenges.edition, params.edition)
+      )
+    )
+    .limit(1);
+
+  if (!refetched) {
+    throw new Error(
+      `[ChallengeState] Failed to persist challenge snapshot for ${params.discipline}/${params.puzzleId}`
+    );
+  }
+
+  return { challengeRow: refetched, normalized };
+}
+
+export async function buildChallengeStateDTO(params: {
+  chatId: string;
+  discipline: ChallengeDiscipline;
+  puzzleId: string;
+  edition: string;
+  viewerTelegramId: string;
+  viewerDisplayName: string;
+  viewerIsSuperadmin: boolean;
+  preloadedSnapshot?: ResolvedChallengeSnapshot;
+}): Promise<ChallengeStateDTO> {
+  const club = await ensureClubExists(params.chatId);
+
+  const { challengeRow, normalized } =
+    params.preloadedSnapshot ??
+    (await resolveChallengeSnapshot({
+      chatId: params.chatId,
+      discipline: params.discipline,
+      puzzleId: params.puzzleId,
+      edition: params.edition,
+    }));
 
   await db
     .insert(challengeAttempts)
@@ -313,28 +359,19 @@ export async function buildChallengeStateDTO(params: {
     discipline: params.discipline,
     puzzle_id: params.puzzleId,
     edition: params.edition,
-    difficulty: (challengeRow?.difficulty ||
-      normalized.difficulty) as ChallengeDifficulty,
-    bot_engine: (challengeRow?.botEngine ||
-      normalized.botEngine) as BotEngineId,
-    initial_fen: challengeRow?.initialFen || normalized.initialFen,
-    puzzle_fen: challengeRow?.puzzleFen || normalized.puzzleFen,
-    user_color: (challengeRow?.userColor || normalized.userColor) as
-      | "white"
-      | "black",
-    first_move: (challengeRow?.firstMove || normalized.firstMove) as
-      | "bot"
-      | "user",
-    strategy: (challengeRow?.strategy ||
-      normalized.strategy) as PuzzleStrategyType,
-    objective: (challengeRow?.objective ||
-      normalized.objective) as PuzzleObjective,
-    tactical_solution:
-      challengeRow?.tacticalSolution ?? normalized.tacticalSolution,
-    domain: challengeRow?.domain || normalized.domain,
-    category: challengeRow?.category || normalized.category,
-    tactical: normalized.tactical,
-    endgame: normalized.endgame,
+    difficulty: challengeRow.difficulty as ChallengeDifficulty,
+    bot_engine: challengeRow.botEngine as BotEngineId,
+    initial_fen: challengeRow.initialFen,
+    puzzle_fen: challengeRow.puzzleFen,
+    user_color: challengeRow.userColor as "white" | "black",
+    first_move: challengeRow.firstMove as "bot" | "user",
+    strategy: challengeRow.strategy as PuzzleStrategyType,
+    objective: challengeRow.objective as PuzzleObjective,
+    tactical_solution: challengeRow.tacticalSolution,
+    domain: challengeRow.domain,
+    category: challengeRow.category,
+    tactical: normalized?.tactical,
+    endgame: normalized?.endgame,
     my_entry: myEntry,
     leaderboard,
     remaining_active_count: nextActiveInfo.remainingActiveCount,

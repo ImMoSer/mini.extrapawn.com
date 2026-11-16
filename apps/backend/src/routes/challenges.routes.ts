@@ -19,8 +19,10 @@ import {
 import {
   buildChallengeStateDTO,
   findChallengeAttemptRef,
+  resolveChallengeSnapshot,
   sanitizeSolvedAttemptMoves,
 } from "../services/challengeState.service.js";
+import { PuzzleNotFoundError } from "../services/puzzleClient.service.js";
 
 interface ChallengeRouteParams {
   discipline: ChallengeDiscipline;
@@ -118,15 +120,22 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      return buildChallengeStateDTO({
-        chatId,
-        discipline,
-        puzzleId,
-        edition: safeEdition,
-        viewerTelegramId: req.user.telegramId,
-        viewerDisplayName: displayName,
-        viewerIsSuperadmin: req.user.isSuperadmin,
-      });
+      try {
+        return await buildChallengeStateDTO({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+          viewerTelegramId: req.user.telegramId,
+          viewerDisplayName: displayName,
+          viewerIsSuperadmin: req.user.isSuperadmin,
+        });
+      } catch (err) {
+        if (err instanceof PuzzleNotFoundError) {
+          return reply.code(404).send({ error: err.message });
+        }
+        throw err;
+      }
     }
   );
 
@@ -162,6 +171,21 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(410).send({
           error: "Challenge expired. Only today's challenges can be solved.",
         });
+      }
+
+      let snapshot;
+      try {
+        snapshot = await resolveChallengeSnapshot({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+        });
+      } catch (err) {
+        if (err instanceof PuzzleNotFoundError) {
+          return reply.code(404).send({ error: err.message });
+        }
+        throw err;
       }
 
       await db
@@ -265,6 +289,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
         viewerIsSuperadmin: req.user.isSuperadmin,
+        preloadedSnapshot: snapshot,
       });
     }
   );
@@ -291,6 +316,21 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(410).send({
           error: "Challenge expired. Only today's challenges can be solved.",
         });
+      }
+
+      let snapshot;
+      try {
+        snapshot = await resolveChallengeSnapshot({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+        });
+      } catch (err) {
+        if (err instanceof PuzzleNotFoundError) {
+          return reply.code(404).send({ error: err.message });
+        }
+        throw err;
       }
 
       await db
@@ -345,6 +385,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
         viewerIsSuperadmin: req.user.isSuperadmin,
+        preloadedSnapshot: snapshot,
       });
     }
   );

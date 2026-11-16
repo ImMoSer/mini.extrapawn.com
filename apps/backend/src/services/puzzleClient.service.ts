@@ -315,6 +315,20 @@ function normalizeSelectFilterForDiscipline(params: {
   return { focusGroup: "all", focusKey: "all" };
 }
 
+export class PuzzleNotFoundError extends Error {
+  public readonly discipline: ChallengeDiscipline;
+  public readonly puzzleId: string;
+
+  constructor(discipline: ChallengeDiscipline, puzzleId: string) {
+    super(
+      `[PuzzleClient] Puzzle not found in catalog: ${discipline}/${puzzleId}`
+    );
+    this.name = "PuzzleNotFoundError";
+    this.discipline = discipline;
+    this.puzzleId = puzzleId;
+  }
+}
+
 export const puzzleClientService = {
   async getPuzzleById(
     discipline: ChallengeDiscipline,
@@ -330,6 +344,10 @@ export const puzzleClientService = {
         "X-User-Id": "tele_app",
       },
     });
+
+    if (response.status === 404) {
+      throw new PuzzleNotFoundError(discipline, puzzleId);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
