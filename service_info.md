@@ -128,9 +128,9 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 
 ## 4. Предрасчёт `PuzzleFen` и Взаимодействие с `puzzle_service`
 
-- В пайплайн генерации датасетов `C:\MY_APPS\CHESS_APP\CREATOR\CreatePuzzleDataset\run.py` добавлен шаг 4 (`src/chess_creator/pipelines/puzzle_fen.py`), который заранее вычисляет колонку **`PuzzleFen`** (FEN позиции ровно в момент первого хода игрока) для всех 4 CSV-таблиц в `C:\MY_APPS\CHESS_APP\puzzle_service\PuzzleDatasetNEW\`:
+- Автономные пайплайны генерации датасетов в `C:\MY_APPS\CHESS_APP\CREATOR\` (`CreateTactical`, `CreateTheoretical`, `BIG_PGN/get_practical_positions`, `BIG_PGN/get_finishhim`) заранее вычисляют колонку **`PuzzleFen`** (FEN позиции ровно в момент первого хода игрока) для всех 4 CSV-таблиц (сбрасываются в локальный staging `PuzzleDatasetNEW\`, откуда проверенные версии фиксируются в Git-папке `C:\MY_APPS\CHESS_APP\puzzle_service\PuzzleDatasetGit\`):
   - `tactics_chess.csv` и `finishhim_chess.csv`: к `TacticalFEN` применяется первый ход из `TacticalSolution`.
-  - `practical_chess.csv` и `theoretical_endgames.csv`: если `FirstMove == 'user'`, берётся `EndingFEN`; если `FirstMove == 'bot'`, применяется первый ход из `cache/leela_cache.json`.
+  - `practical_chess.csv` и `theoretical_endgames.csv`: если `FirstMove == 'user'`, берётся `EndingFEN`; если `FirstMove == 'bot'`, применяется детерминированный первый ход бота (таблицы `Syzygy/Gaviota` / `Stockfish`).
 - В `puzzle_service` (`CatalogSchemaVersion = 8`) поле `puzzle_fen` компилируется в SQLite-каталог и возвращается напрямую в эндпоинтах:
   - `GET /api/training/puzzle/{discipline}/{puzzle_id}`
   - `POST /api/training/puzzle/select`
