@@ -12,7 +12,6 @@ import {
   type GoActiveChallengeItemDTO,
   type NextActiveChallengeRefDTO,
 } from "shared";
-import { env } from "../config/env.js";
 import { db } from "../db/index.js";
 import {
   challengeAttempts,
@@ -23,39 +22,39 @@ import {
 } from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "./clubMapper.js";
 
-export async function ensureClubExists(chatId: string) {
+export class ClubNotFoundError extends Error {
+  public readonly statusCode = 404;
+
+  constructor(chatId: string) {
+    super(`Club '${chatId}' is not registered or unavailable.`);
+    this.name = "ClubNotFoundError";
+  }
+}
+
+export async function requireExistingClub(
+  chatId: string,
+  options?: { allowSuperadminBypass?: boolean }
+) {
   const [existing] = await db
     .select()
     .from(clubs)
     .where(eq(clubs.chatId, chatId))
     .limit(1);
 
-  if (existing) return existing;
-
-  const [created] = await db
-    .insert(clubs)
-    .values({
-      chatId,
-      title: `Club ${chatId}`,
-      ownerTelegramId: env.SUPERADMIN_TELEGRAM_ID,
-      topicThreadId: 0,
-      status: "active",
-    })
-    .onConflictDoNothing()
-    .returning();
-
-  if (created) return created;
-
-  const [refetched] = await db
-    .select()
-    .from(clubs)
-    .where(eq(clubs.chatId, chatId))
-    .limit(1);
-
-  if (!refetched) {
-    throw new Error(`[ChallengesService] Failed to ensure club ${chatId}`);
+  if (!existing) {
+    throw new ClubNotFoundError(chatId);
   }
-  return refetched;
+
+  if (
+    !options?.allowSuperadminBypass &&
+    (existing.status === "blocked" ||
+      existing.status === "bot_removed" ||
+      existing.status === "pending")
+  ) {
+    throw new ClubNotFoundError(chatId);
+  }
+
+  return existing;
 }
 
 export async function isChallengeExpiredForViewer(params: {
@@ -142,6 +141,7 @@ export async function getViewerTodayActiveChallenges(params: {
     (c) =>
       c.status !== "blocked" &&
       c.status !== "bot_removed" &&
+      c.status !== "pending" &&
       (params.isSuperadmin ||
         adminChatIds.has(c.chatId) ||
         participatedChatIds.has(c.chatId))
@@ -304,7 +304,9 @@ export async function buildClubRecordsResponse(params: {
   viewerTelegramId: string;
   viewerIsSuperadmin: boolean;
 }): Promise<ClubRecordsResponseDTO> {
-  const clubRow = await ensureClubExists(params.chatId);
+  const clubRow = await requireExistingClub(params.chatId, {
+    allowSuperadminBypass: params.viewerIsSuperadmin,
+  });
   const clubSummary = await mapClubRowToSummaryDTO(
     clubRow,
     params.viewerTelegramId,

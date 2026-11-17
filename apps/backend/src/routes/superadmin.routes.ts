@@ -18,6 +18,12 @@ import {
   users,
 } from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
+import {
+  chatIdParamsSchema,
+  superadminBlockBodySchema,
+  superadminPromoBodySchema,
+  superadminStatusBodySchema,
+} from "./schemas.js";
 
 export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
@@ -38,6 +44,14 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         .select()
         .from(clubs)
         .orderBy(desc(clubs.createdAt));
+
+      // Surface pending club applications at the very top of BOSS panel
+      clubRows.sort((a, b) => {
+        const aPending = a.status === "pending" ? 0 : 1;
+        const bPending = b.status === "pending" ? 0 : 1;
+        if (aPending !== bPending) return aPending - bPending;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
 
       const clubDtos = await Promise.all(
         clubRows.map((c) =>
@@ -79,6 +93,42 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // Approve a pending club application (`status: 'pending' -> 'active'`, sends welcome + initial challenge)
+  fastify.post<{ Params: { chatId: string } }>(
+    "/superadmin/clubs/:chatId/approve",
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: { params: chatIdParamsSchema },
+    },
+    async (req, reply) => {
+      const res = await telegramBotService.approveClubApplication(
+        req.params.chatId
+      );
+      if (!res.ok) {
+        return reply.code(400).send({ error: res.error });
+      }
+      return mapClubRowToSummaryDTO(res.club, req.user.telegramId, true);
+    }
+  );
+
+  // Reject a pending club application (sends polite notice, bot leaves chat, deletes pending DB row)
+  fastify.post<{ Params: { chatId: string } }>(
+    "/superadmin/clubs/:chatId/reject",
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: { params: chatIdParamsSchema },
+    },
+    async (req, reply) => {
+      const res = await telegramBotService.rejectClubApplication(
+        req.params.chatId
+      );
+      if (!res.ok) {
+        return reply.code(404).send({ error: res.error ?? "Club not found" });
+      }
+      return { ok: true };
+    }
+  );
+
   fastify.post<{
     Params: { chatId: string };
     Body: {
@@ -88,7 +138,13 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/superadmin/clubs/:chatId/status",
-    { preHandler: [fastify.requireSuperadmin] },
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: {
+        params: chatIdParamsSchema,
+        body: superadminStatusBodySchema,
+      },
+    },
     async (req, reply) => {
       const { chatId } = req.params;
       const { status, blocked_reason = null, leave_chat = false } = req.body;
@@ -128,7 +184,13 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/superadmin/clubs/:chatId/block",
-    { preHandler: [fastify.requireSuperadmin] },
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: {
+        params: chatIdParamsSchema,
+        body: superadminBlockBodySchema,
+      },
+    },
     async (req, reply) => {
       const { chatId } = req.params;
       const { blocked, blocked_reason = null } = req.body;
@@ -178,7 +240,10 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { chatId: string };
   }>(
     "/superadmin/clubs/:chatId/data",
-    { preHandler: [fastify.requireSuperadmin] },
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: { params: chatIdParamsSchema },
+    },
     async (req, reply) => {
       const { chatId } = req.params;
 
@@ -192,7 +257,6 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Club not found" });
       }
 
-      // Always delete all challenge attempts & published challenges for this club
       await db
         .delete(challengeAttempts)
         .where(eq(challengeAttempts.chatId, chatId));
@@ -200,7 +264,6 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         .delete(clubChallenges)
         .where(eq(clubChallenges.chatId, chatId));
 
-      // If blacklisted: keep the club row so blacklist remains intact
       if (row.status === "blocked") {
         await telegramBotService.clearAutoPause(chatId);
         await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
@@ -226,7 +289,6 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // If not blacklisted: leave Telegram chat and delete everything about the club
       await telegramBotService.leaveClubChat(chatId);
       await db.delete(clubs).where(eq(clubs.chatId, chatId));
 
@@ -253,7 +315,10 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/superadmin/promos",
-    { preHandler: [fastify.requireSuperadmin] },
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: { body: superadminPromoBodySchema },
+    },
     async (req, reply) => {
       const body = req.body;
       const textRu = (body.text_ru || "").trim();
@@ -326,4 +391,3 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 };
-

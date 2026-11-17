@@ -6,6 +6,8 @@ const CLUB_ROUTE_ERRORS = {
     forbiddenManager:
       "Доступ разрешён только владельцу супергруппы или администратору с правом «Управление темами» (Manage Topics).",
     blockedClub: "Этот клуб временно заблокирован администратором платформы.",
+    pendingApproval:
+      "Клуб находится на модерации. Публикация челленджей станет доступна сразу после подтверждения заявки администратором ExtraPawn.",
     botRemoved:
       "Бот удалён из этой супергруппы. Добавьте @ExtraPawnTeleBot обратно в чат.",
     maxIntervals: "Не более 8 интервалов на один день недели.",
@@ -20,6 +22,8 @@ const CLUB_ROUTE_ERRORS = {
     forbiddenManager:
       "Access is restricted to the supergroup owner or an administrator with the 'Manage Topics' permission.",
     blockedClub: "This club is temporarily blocked by the platform administrator.",
+    pendingApproval:
+      "This club is awaiting moderator approval. Challenges will unlock once approved by the ExtraPawn administrator.",
     botRemoved:
       "The bot was removed from this supergroup. Please add @ExtraPawnTeleBot back to the chat.",
     maxIntervals: "Maximum 8 intervals per day of the week.",
@@ -35,6 +39,8 @@ const CLUB_ROUTE_ERRORS = {
       "Zugriff ist nur dem Eigentümer der Supergruppe oder einem Administrator mit dem Recht „Themen verwalten“ (Manage Topics) gestattet.",
     blockedClub:
       "Dieser Klub ist vom Plattform-Administrator vorübergehend gesperrt.",
+    pendingApproval:
+      "Dieser Klub wartet auf die Freigabe durch den Moderator. Challenges werden nach der Genehmigung freigeschaltet.",
     botRemoved:
       "Der Bot wurde aus dieser Supergruppe entfernt. Bitte fügen Sie @ExtraPawnTeleBot wieder zum Chat hinzu.",
     maxIntervals: "Maximal 8 Intervalle pro Wochentag.",

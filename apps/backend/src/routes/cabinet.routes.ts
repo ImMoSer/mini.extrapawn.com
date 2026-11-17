@@ -12,12 +12,9 @@ import {
 } from "shared";
 import { env } from "../config/env.js";
 import { db } from "../db/index.js";
-import {
-  challengeAttempts,
-  clubs,
-  users,
-} from "../db/schema.js";
+import { challengeAttempts, clubs, users } from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
+import { cabinetLanguageBodySchema } from "./schemas.js";
 
 export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/cabinet", { preHandler: [fastify.authenticate] }, async (req) => {
@@ -62,7 +59,8 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
         : att.attempts;
 
       bucket.total_attempts += att.attempts;
-      bucket.failed_count += wrongMoves + (att.status === "surrendered" && wrongMoves === 0 ? 1 : 0);
+      bucket.failed_count +=
+        wrongMoves + (att.status === "surrendered" && wrongMoves === 0 ? 1 : 0);
 
       if (att.solved) {
         bucket.solved_count += 1;
@@ -84,11 +82,14 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
       )
     );
 
-    const visibleClubs = clubDtos.filter(
+    const nonRemovedOrBlocked = clubDtos.filter(
       (c) => c.status !== "bot_removed" && c.status !== "blocked"
     );
-    const myClubs = visibleClubs.filter((c) => c.is_admin);
-    const ownedClubsCount = visibleClubs.filter(
+    const visibleClubs = nonRemovedOrBlocked.filter(
+      (c) => c.status !== "pending"
+    );
+    const myClubs = nonRemovedOrBlocked.filter((c) => c.is_admin);
+    const ownedClubsCount = nonRemovedOrBlocked.filter(
       (c) => c.owner_telegram_id === viewer.telegramId
     ).length;
 
@@ -99,8 +100,9 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
         first_name: userRow?.firstName ?? viewer.firstName,
         last_name: userRow?.lastName ?? viewer.lastName,
         avatar_url: userRow?.avatarUrl ?? viewer.avatarUrl,
-        language_code: ((userRow?.languageCode ||
-          viewer.languageCode) as AppLanguage) || "ru",
+        language_code:
+          ((userRow?.languageCode || viewer.languageCode) as AppLanguage) ||
+          "ru",
         is_superadmin: viewer.isSuperadmin,
         terms_accepted_at: userRow?.termsAcceptedAt
           ? userRow.termsAcceptedAt.toISOString()
@@ -122,7 +124,10 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch<{ Body: { language_code: AppLanguage } }>(
     "/cabinet/language",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { body: cabinetLanguageBodySchema },
+    },
     async (req) => {
       const lang: AppLanguage =
         req.body.language_code === "en"
@@ -154,4 +159,3 @@ export const cabinetRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 };
-

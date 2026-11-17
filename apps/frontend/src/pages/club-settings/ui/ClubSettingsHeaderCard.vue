@@ -37,7 +37,7 @@ const { t } = useI18n();
 
       <!-- Master Toggle Switch (active: true / false) -->
       <button
-        v-if="club.status !== 'blocked'"
+        v-if="club.status !== 'blocked' && club.status !== 'pending'"
         type="button"
         :disabled="isTogglingActive"
         class="flex items-center gap-2.5 rounded-full border px-3.5 py-1.5 text-xs font-bold transition"
@@ -65,6 +65,14 @@ const { t } = useI18n();
           }}
         </span>
       </button>
+    </div>
+
+    <!-- Pending Moderator Approval Notice -->
+    <div
+      v-if="club.status === 'pending'"
+      class="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-xs text-warning"
+    >
+      ⏳ <strong>{{ t("settings_pending_badge") }}</strong> — {{ t("settings_pending_desc") }}
     </div>
 
     <!-- Smart Auto-Pause Notice -->

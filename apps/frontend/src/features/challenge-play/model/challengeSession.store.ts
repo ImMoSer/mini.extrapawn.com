@@ -275,7 +275,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
           body: JSON.stringify({
             solved,
             time_ms: elapsedMs.value,
-            uci_moves: includeHistory ? playedUciMoves.value.join(" ") : "",
+            uci_moves: solved ? playedUciMoves.value.join(" ") : "",
             pgn_moves: includeHistory ? playedSanMoves.value.join(" ") : "",
             move_times_ms: includeHistory ? playedMoveTimesMs.value : undefined,
           }),

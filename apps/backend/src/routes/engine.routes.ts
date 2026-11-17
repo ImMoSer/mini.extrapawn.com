@@ -1,6 +1,11 @@
 import { FastifyPluginAsync } from "fastify";
 import type { BotEngineId } from "shared";
 import { engineClientService } from "../services/engineClient.service.js";
+import {
+  coachUciFenBodySchema,
+  engineBestmoveBodySchema,
+  engineGaviotaBodySchema,
+} from "./schemas.js";
 
 export const engineRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{
@@ -11,7 +16,10 @@ export const engineRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/engine/bestmove",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { body: engineBestmoveBodySchema },
+    },
     async (req) => {
       const { engine, start_fen, moves } = req.body;
       return engineClientService.getBestMove(engine, start_fen, moves || []);
@@ -26,7 +34,10 @@ export const engineRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/engine/gaviota",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { body: engineGaviotaBodySchema },
+    },
     async (req) => {
       const { fen, max_candidates = 5, include_pv = false } = req.body;
       return engineClientService.getGaviotaLines(
@@ -45,11 +56,14 @@ export const engineRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/coach-engine/uci_fen",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { body: coachUciFenBodySchema },
+    },
     async (req) => {
-      const { user_id, start_fen, moves } = req.body;
+      const { start_fen, moves } = req.body;
       const effectiveUserId =
-        user_id?.trim() || req.user.username || req.user.telegramId || "mini_user";
+        req.user.username || req.user.telegramId || "mini_user";
       return engineClientService.analyzeCoachUciFen(
         effectiveUserId,
         start_fen,
@@ -58,4 +72,3 @@ export const engineRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 };
-

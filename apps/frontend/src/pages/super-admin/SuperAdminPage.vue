@@ -11,11 +11,13 @@ import {
   type PromoTranslationsPayload,
   type SuperAdminOverviewDTO,
 } from "shared";
+import SuperAdminClubsSection from "@/pages/super-admin/ui/SuperAdminClubsSection.vue";
 import { apiRequest } from "@/shared/api/httpClient";
 
 const router = useRouter();
 const overview = ref<SuperAdminOverviewDTO | null>(null);
 const isLoading = ref(false);
+const busyClubId = ref<string | null>(null);
 const isSendingPromo = ref(false);
 const isSavingPromo = ref(false);
 const actionMessage = ref<string | null>(null);
@@ -26,7 +28,6 @@ const promoTitle = ref("ExtraPawn Main App Promo");
 const promoFileId = ref(DEFAULT_PROMO_FILE_ID);
 const promoTargetUrl = ref("https://extrapawn.com");
 
-// Unified 3-language JSON window (ru, en, de)
 function formatTranslationsJson(payload: PromoTranslationsPayload): string {
   return JSON.stringify(payload, null, 2);
 }
@@ -107,6 +108,43 @@ async function fetchOverview() {
   }
 }
 
+async function approveClub(club: ClubSummaryDTO) {
+  actionMessage.value = null;
+  busyClubId.value = club.chat_id;
+  try {
+    await apiRequest<ClubSummaryDTO>(
+      `/superadmin/clubs/${encodeURIComponent(club.chat_id)}/approve`,
+      { method: "POST" }
+    );
+    actionMessage.value = `✅ Заявка клуба «${club.title}» одобрена! Приветствие и первый челлендж отправлены.`;
+    await fetchOverview();
+  } finally {
+    busyClubId.value = null;
+  }
+}
+
+async function rejectClub(club: ClubSummaryDTO) {
+  if (
+    !window.confirm(
+      `Отклонить заявку клуба «${club.title}»? Бот вежливо выйдет из группы, заявка будет удалена.`
+    )
+  ) {
+    return;
+  }
+  actionMessage.value = null;
+  busyClubId.value = club.chat_id;
+  try {
+    await apiRequest<{ ok: boolean }>(
+      `/superadmin/clubs/${encodeURIComponent(club.chat_id)}/reject`,
+      { method: "POST" }
+    );
+    actionMessage.value = `🚫 Заявка клуба «${club.title}» отклонена, бот покинул супергруппу.`;
+    await fetchOverview();
+  } finally {
+    busyClubId.value = null;
+  }
+}
+
 async function copyJsonOnly() {
   await navigator.clipboard.writeText(promoJsonText.value);
   copyNotice.value = "JSON скопирован в буфер обмена!";
@@ -136,28 +174,33 @@ async function copyAgentPromptWithExample() {
 
 async function toggleClubBlacklist(club: ClubSummaryDTO, blocked: boolean) {
   actionMessage.value = null;
-  const updated = await apiRequest<ClubSummaryDTO>(
-    `/superadmin/clubs/${encodeURIComponent(club.chat_id)}/block`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        blocked,
-        blocked_reason: blocked ? "Blocked by SuperAdmin 5106981885" : null,
-      }),
-    }
-  );
-
-  if (overview.value) {
-    const idx = overview.value.clubs.findIndex(
-      (c) => c.chat_id === updated.chat_id
+  busyClubId.value = club.chat_id;
+  try {
+    const updated = await apiRequest<ClubSummaryDTO>(
+      `/superadmin/clubs/${encodeURIComponent(club.chat_id)}/block`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          blocked,
+          blocked_reason: blocked ? "Blocked by SuperAdmin 5106981885" : null,
+        }),
+      }
     );
-    if (idx >= 0) {
-      overview.value.clubs[idx] = updated;
+
+    if (overview.value) {
+      const idx = overview.value.clubs.findIndex(
+        (c) => c.chat_id === updated.chat_id
+      );
+      if (idx >= 0) {
+        overview.value.clubs[idx] = updated;
+      }
     }
+    actionMessage.value = blocked
+      ? `Клуб «${club.title}» заблокирован (внесен в черный список, отправлено уведомление с QR @ProfessorMozer, бот вышел из чата).`
+      : `С клуба «${club.title}» снята блокировка.`;
+  } finally {
+    busyClubId.value = null;
   }
-  actionMessage.value = blocked
-    ? `Клуб «${club.title}» заблокирован (внесен в черный список, отправлено уведомление с QR @ProfessorMozer, бот вышел из чата).`
-    : `С клуба «${club.title}» снята блокировка.`;
 }
 
 async function purgeClubData(club: ClubSummaryDTO) {
@@ -171,30 +214,40 @@ async function purgeClubData(club: ClubSummaryDTO) {
   }
 
   actionMessage.value = null;
-  const res = await apiRequest<{
-    ok: boolean;
-    deleted_club_row: boolean;
-    club: ClubSummaryDTO | null;
-  }>(`/superadmin/clubs/${encodeURIComponent(club.chat_id)}/data`, {
-    method: "DELETE",
-  });
+  busyClubId.value = club.chat_id;
+  try {
+    const res = await apiRequest<{
+      ok: boolean;
+      deleted_club_row: boolean;
+      club: ClubSummaryDTO | null;
+    }>(`/superadmin/clubs/${encodeURIComponent(club.chat_id)}/data`, {
+      method: "DELETE",
+    });
 
-  if (res.deleted_club_row) {
-    actionMessage.value = `Все данные клуба «${club.title}» полностью удалены из PostgreSQL, бот покинул чат.`;
-  } else {
-    actionMessage.value = `История активности клуба «${club.title}» очищена в PostgreSQL (черный список сохранен).`;
+    if (res.deleted_club_row) {
+      actionMessage.value = `Все данные клуба «${club.title}» полностью удалены из PostgreSQL, бот покинул чат.`;
+    } else {
+      actionMessage.value = `История активности клуба «${club.title}» очищена в PostgreSQL (черный список сохранен).`;
+    }
+    await fetchOverview();
+  } finally {
+    busyClubId.value = null;
   }
-  await fetchOverview();
 }
 
 async function triggerClubChallenge(club: ClubSummaryDTO) {
   actionMessage.value = null;
-  await apiRequest(`/clubs/${encodeURIComponent(club.chat_id)}/publish-now`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-  actionMessage.value = `Челлендж отправлен в клуб «${club.title}»!`;
-  await fetchOverview();
+  busyClubId.value = club.chat_id;
+  try {
+    await apiRequest(`/clubs/${encodeURIComponent(club.chat_id)}/publish-now`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    actionMessage.value = `Челлендж отправлен в клуб «${club.title}»!`;
+    await fetchOverview();
+  } finally {
+    busyClubId.value = null;
+  }
 }
 
 async function submitPromoCampaign(broadcastNow: boolean) {
@@ -264,7 +317,7 @@ onMounted(() => {
       </div>
       <button
         type="button"
-        class="rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-bold text-text-primary hover:border-brand"
+        class="min-w-0 truncate rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-bold text-text-primary hover:border-brand"
         @click="fetchOverview"
       >
         ↻ Обновить
@@ -306,117 +359,21 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- All Connected Clubs Management -->
-    <section v-if="overview" class="glass flex flex-col gap-3 p-4">
-      <h2 class="text-xs font-bold tracking-wider text-text-secondary uppercase">
-        УПРАВЛЕНИЕ КЛУБАМИ (ЧЕРНЫЙ СПИСОК / ОЧИСТКА ДАННЫХ)
-      </h2>
-
-      <div class="flex flex-col divide-y divide-border">
-        <div
-          v-for="club in overview.clubs"
-          :key="club.chat_id"
-          class="flex flex-col gap-2 py-3"
-        >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-sm font-bold text-text-primary">
-                  {{ club.title }}
-                </span>
-                <!-- Legitimacy badge (independent of moderator pause) -->
-                <span
-                  class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                  :class="
-                    club.status === 'blocked'
-                      ? 'bg-danger/15 text-danger'
-                      : 'bg-success/15 text-success'
-                  "
-                >
-                  {{ club.status === "blocked" ? "⛔ BLACKLIST" : "✓ LEGIT" }}
-                </span>
-                <!-- Moderator / Bot operational state badge -->
-                <span
-                  v-if="club.status !== 'blocked'"
-                  class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                  :class="
-                    club.status === 'bot_removed'
-                      ? 'bg-warning/15 text-warning'
-                      : club.is_active
-                        ? 'bg-brand/15 text-brand'
-                        : 'bg-elevated text-text-secondary'
-                  "
-                >
-                  {{
-                    club.status === "bot_removed"
-                      ? "BOT REMOVED"
-                      : club.is_active
-                        ? "ACTIVE"
-                        : "PAUSED BY ADMIN"
-                  }}
-                </span>
-              </div>
-              <div class="font-condensed text-xs text-text-secondary">
-                chat_id: {{ club.chat_id }} • thread: #{{
-                  club.topic_thread_id
-                }}
-                • members: {{ club.member_count }} • challenges:
-                {{ club.published_challenges_count }}
-              </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-1.5">
-              <button
-                v-if="club.status !== 'blocked'"
-                type="button"
-                class="rounded border border-border bg-elevated px-2.5 py-1 text-xs font-bold text-brand hover:border-brand"
-                @click="triggerClubChallenge(club)"
-              >
-                🚀 Пост
-              </button>
-
-              <button
-                type="button"
-                class="rounded border border-border bg-elevated px-2.5 py-1 text-xs font-bold text-text-primary hover:border-brand"
-                @click="
-                  router.push(
-                    `/club-settings/${encodeURIComponent(club.chat_id)}`
-                  )
-                "
-              >
-                ⚙️ Настройки
-              </button>
-
-              <button
-                v-if="club.status !== 'blocked'"
-                type="button"
-                class="rounded bg-danger px-2.5 py-1 text-xs font-bold text-on-brand transition hover:opacity-90"
-                @click="toggleClubBlacklist(club, true)"
-              >
-                ⛔ Блок
-              </button>
-
-              <button
-                v-if="club.status === 'blocked'"
-                type="button"
-                class="rounded bg-success px-2.5 py-1 text-xs font-bold text-on-brand transition hover:opacity-90"
-                @click="toggleClubBlacklist(club, false)"
-              >
-                ✓ Снять блок
-              </button>
-
-              <button
-                type="button"
-                class="rounded border border-danger/50 bg-danger/15 px-2.5 py-1 text-xs font-bold text-danger transition hover:bg-danger hover:text-on-brand"
-                @click="purgeClubData(club)"
-              >
-                🗑 Удалить данные
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- Club Applications & Connected Clubs Management -->
+    <SuperAdminClubsSection
+      v-if="overview"
+      :clubs="overview.clubs"
+      :busy-club-id="busyClubId"
+      @approve="approveClub"
+      @reject="rejectClub"
+      @trigger-challenge="triggerClubChallenge"
+      @open-settings="
+        (club) =>
+          router.push(`/club-settings/${encodeURIComponent(club.chat_id)}`)
+      "
+      @toggle-blacklist="toggleClubBlacklist"
+      @purge-data="purgeClubData"
+    />
 
     <!-- Promo Campaign Broadcaster -->
     <section class="glass flex flex-col gap-3 p-4">
@@ -433,17 +390,17 @@ onMounted(() => {
         <div class="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[11px] font-bold text-text-primary transition hover:border-brand hover:text-brand"
+            class="min-w-0 truncate rounded-md border border-border bg-elevated px-2.5 py-1 text-[11px] font-bold text-text-primary transition hover:border-brand hover:text-brand"
             @click="copyJsonOnly"
           >
-            📋 Копировать JSON
+            📋 JSON
           </button>
           <button
             type="button"
-            class="rounded-md border border-accent/40 bg-accent/15 px-2.5 py-1 text-[11px] font-bold text-accent transition hover:border-accent"
+            class="min-w-0 truncate rounded-md border border-accent/40 bg-accent/15 px-2.5 py-1 text-[11px] font-bold text-accent transition hover:border-accent"
             @click="copyAgentPromptWithExample"
           >
-            🤖 Копировать ТЗ + JSON для агента
+            🤖 ТЗ агенту
           </button>
         </div>
       </div>
@@ -455,7 +412,6 @@ onMounted(() => {
         ✓ {{ copyNotice }}
       </div>
 
-      <!-- 3 Separate Persistent Fields: title, file_id, target_url -->
       <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         <label class="flex flex-col gap-1">
           <span class="text-[10px] font-bold tracking-wider text-text-secondary uppercase">
@@ -494,11 +450,10 @@ onMounted(() => {
         />
       </label>
 
-      <!-- Single JSON Textarea for RU / EN / DE texts and buttons -->
       <div class="flex flex-col gap-1.5">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <span class="text-[10px] font-bold tracking-wider text-text-secondary uppercase">
-            JSON текстов и кнопок (ru / en / de) — последний сохраненный пост всегда здесь
+            JSON текстов и кнопок (ru / en / de)
           </span>
           <span
             v-if="parsedPromoJson.ok"
@@ -516,7 +471,7 @@ onMounted(() => {
 
         <textarea
           v-model="promoJsonText"
-          rows="16"
+          rows="14"
           spellcheck="false"
           class="rounded-lg border bg-elevated p-3 font-mono text-xs leading-relaxed text-text-primary focus:outline-none"
           :class="
@@ -532,7 +487,6 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Live 3-Language Preview -->
       <div
         v-if="parsedPromoJson.ok && currentPreviewItem"
         class="flex flex-col gap-2.5 rounded-xl border border-border bg-elevated p-3.5"
@@ -559,7 +513,6 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Step 1 Preview: Photo file_id -->
         <div class="flex items-center gap-2 rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs text-text-secondary">
           <span>🖼 <strong>Сообщение #1 (Фото):</strong></span>
           <span class="truncate font-mono text-[11px] text-brand">
@@ -567,7 +520,6 @@ onMounted(() => {
           </span>
         </div>
 
-        <!-- Step 2 Preview: HTML Text + Inline Button -->
         <div class="flex flex-col gap-2 rounded-lg border border-border/70 bg-surface p-3">
           <div class="text-[10px] font-bold tracking-wider text-text-secondary uppercase">
             💬 Сообщение #2 ({{ previewLang.toUpperCase() }} HTML + Кнопка):
@@ -590,12 +542,11 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Save Template & Broadcast Buttons -->
       <div class="flex flex-col gap-2 sm:flex-row">
         <button
           type="button"
           :disabled="!parsedPromoJson.ok || !isPromoDirty || isSavingPromo || isSendingPromo"
-          class="flex-1 rounded-lg border py-2.5 text-xs font-bold transition"
+          class="min-w-0 flex-1 truncate rounded-lg border px-3 py-2.5 text-xs font-bold transition"
           :class="
             parsedPromoJson.ok && isPromoDirty
               ? 'border-brand bg-brand/15 text-brand hover:bg-brand hover:text-on-brand'
@@ -603,16 +554,16 @@ onMounted(() => {
           "
           @click="submitPromoCampaign(false)"
         >
-          {{ isPromoDirty ? "💾 Сохранить пост" : "✓ Сохранено" }}
+          {{ isPromoDirty ? "💾 Сохранить" : "✓ Сохранено" }}
         </button>
 
         <button
           type="button"
           :disabled="!parsedPromoJson.ok || isSendingPromo || isSavingPromo"
-          class="flex-1 rounded-lg bg-accent py-2.5 text-xs font-bold text-on-brand transition hover:bg-accent-deep disabled:opacity-50"
+          class="min-w-0 flex-1 truncate rounded-lg bg-accent px-3 py-2.5 text-xs font-bold text-on-brand transition hover:bg-accent-deep disabled:opacity-50"
           @click="submitPromoCampaign(true)"
         >
-          📢 Отправить промо во все активные клубы
+          📢 Разослать
         </button>
       </div>
     </section>

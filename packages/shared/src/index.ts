@@ -70,6 +70,7 @@ export type BotEngineId = "mozero";
 export type ChallengeAttemptStatus = "in_progress" | "solved" | "surrendered";
 
 export type ClubStatus =
+  | "pending"
   | "active"
   | "paused"
   | "blocked"

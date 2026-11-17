@@ -329,6 +329,10 @@ onMounted(() => {
             <span class="font-bold text-brand">•</span>
             <span>{{ t("clubs_rule_3") }}</span>
           </li>
+          <li class="flex items-start gap-2">
+            <span class="font-bold text-brand">•</span>
+            <span>{{ t("clubs_rule_4") }}</span>
+          </li>
         </ul>
 
         <!-- Mandatory Group Language Selection (EN / DE / RU checkboxes, all unchecked by default) -->

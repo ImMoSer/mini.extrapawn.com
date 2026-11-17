@@ -20,6 +20,7 @@ RUN pnpm --filter frontend build
 FROM nginx:alpine
 
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/frontend/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
 EXPOSE 80

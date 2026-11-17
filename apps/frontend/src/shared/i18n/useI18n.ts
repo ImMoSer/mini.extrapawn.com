@@ -136,6 +136,11 @@ const DICT = {
       "В теме бота публикуются шахматные челленджи, рекорды клуба и редкие анонсы проекта ExtraPawn.",
     clubs_rule_3:
       "Управлять настройками и паузой могут владелец супергруппы и администраторы с правом «Управление темами» (Manage Topics).",
+    clubs_rule_4:
+      "После добавления бота заявка клуба проходит быструю модерацию администратором ExtraPawn.",
+    settings_pending_badge: "ЗАЯВКА НА МОДЕРАЦИИ",
+    settings_pending_desc:
+      "клуб ожидает подтверждения администратором ExtraPawn. Челленджи запустятся автоматически сразу после одобрения.",
     clubs_terms_prefix:
       "Я владелец или администратор супергруппы (с правом «Управление темами»), прочитал(а) и согласен(на) с",
     clubs_terms_link: "Условиями использования",
@@ -358,6 +363,11 @@ const DICT = {
       "Chess challenges, club leaderboards, and occasional ExtraPawn project announcements are posted in the bot topic.",
     clubs_rule_3:
       "Bot settings and pause controls are available to the supergroup owner and administrators with the 'Manage Topics' permission.",
+    clubs_rule_4:
+      "After adding the bot, your club application undergoes quick approval by the ExtraPawn administrator.",
+    settings_pending_badge: "PENDING APPROVAL",
+    settings_pending_desc:
+      "your club is awaiting approval by the ExtraPawn administrator. Challenges will start automatically once approved.",
     clubs_terms_prefix:
       "I am the owner or an admin (with 'Manage Topics') of the supergroup and have read and agree to the",
     clubs_terms_link: "Terms of Use",
@@ -580,6 +590,11 @@ const DICT = {
       "Im Bot-Thema werden Schach-Challenges, Klub-Rekorde und gelegentliche Ankündigungen des Projekts ExtraPawn veröffentlicht.",
     clubs_rule_3:
       "Die Bot-Einstellungen und Pausensteuerung stehen dem Eigentümer der Supergruppe sowie Administratoren mit dem Recht „Themen verwalten“ (Manage Topics) zur Verfügung.",
+    clubs_rule_4:
+      "Nach dem Hinzufügen des Bots wird Ihr Klub-Antrag kurz vom ExtraPawn-Administrator geprüft.",
+    settings_pending_badge: "PRÜFUNG LÄUFT",
+    settings_pending_desc:
+      "Ihr Klub wartet auf die Freigabe durch den ExtraPawn-Administrator. Challenges starten automatisch nach Genehmigung.",
     clubs_terms_prefix:
       "Ich bin Eigentümer oder Administrator (mit „Themen verwalten“) der Supergruppe, habe die",
     clubs_terms_link: "Nutzungsbedingungen",

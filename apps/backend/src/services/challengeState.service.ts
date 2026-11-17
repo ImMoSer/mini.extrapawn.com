@@ -16,10 +16,10 @@ import { db } from "../db/index.js";
 import { challengeAttempts, clubChallenges, users } from "../db/schema.js";
 import {
   computeViewerNextActive,
-  ensureClubExists,
+  requireExistingClub,
 } from "./challengeQueries.service.js";
 import {
-  puzzleClientService,
+  PuzzleNotFoundError,
   type NormalizedChallengePuzzle,
 } from "./puzzleClient.service.js";
 
@@ -157,57 +157,7 @@ export async function resolveChallengeSnapshot(params: {
     return { challengeRow: existing };
   }
 
-  const normalized = await puzzleClientService.getPuzzleById(
-    params.discipline,
-    params.puzzleId
-  );
-
-  const [inserted] = await db
-    .insert(clubChallenges)
-    .values({
-      chatId: params.chatId,
-      discipline: params.discipline,
-      puzzleId: params.puzzleId,
-      edition: params.edition,
-      difficulty: normalized.difficulty,
-      botEngine: normalized.botEngine,
-      initialFen: normalized.initialFen,
-      puzzleFen: normalized.puzzleFen,
-      userColor: normalized.userColor,
-      firstMove: normalized.firstMove,
-      strategy: normalized.strategy,
-      objective: normalized.objective,
-      tacticalSolution: normalized.tacticalSolution,
-      domain: normalized.domain,
-      category: normalized.category,
-    })
-    .onConflictDoNothing()
-    .returning();
-
-  if (inserted) {
-    return { challengeRow: inserted, normalized };
-  }
-
-  const [refetched] = await db
-    .select()
-    .from(clubChallenges)
-    .where(
-      and(
-        eq(clubChallenges.chatId, params.chatId),
-        eq(clubChallenges.discipline, params.discipline),
-        eq(clubChallenges.puzzleId, params.puzzleId),
-        eq(clubChallenges.edition, params.edition)
-      )
-    )
-    .limit(1);
-
-  if (!refetched) {
-    throw new Error(
-      `[ChallengeState] Failed to persist challenge snapshot for ${params.discipline}/${params.puzzleId}`
-    );
-  }
-
-  return { challengeRow: refetched, normalized };
+  throw new PuzzleNotFoundError(params.discipline, params.puzzleId);
 }
 
 export async function buildChallengeStateDTO(params: {
@@ -218,9 +168,12 @@ export async function buildChallengeStateDTO(params: {
   viewerTelegramId: string;
   viewerDisplayName: string;
   viewerIsSuperadmin: boolean;
+  canInitializeAttempt?: boolean;
   preloadedSnapshot?: ResolvedChallengeSnapshot;
 }): Promise<ChallengeStateDTO> {
-  const club = await ensureClubExists(params.chatId);
+  const club = await requireExistingClub(params.chatId, {
+    allowSuperadminBypass: params.viewerIsSuperadmin,
+  });
 
   const { challengeRow, normalized } =
     params.preloadedSnapshot ??
@@ -231,20 +184,22 @@ export async function buildChallengeStateDTO(params: {
       edition: params.edition,
     }));
 
-  await db
-    .insert(challengeAttempts)
-    .values({
-      chatId: params.chatId,
-      discipline: params.discipline,
-      puzzleId: params.puzzleId,
-      edition: params.edition,
-      telegramId: params.viewerTelegramId,
-      username: params.viewerDisplayName,
-      status: "in_progress",
-      solved: false,
-      attempts: 0,
-    })
-    .onConflictDoNothing();
+  if (params.canInitializeAttempt !== false) {
+    await db
+      .insert(challengeAttempts)
+      .values({
+        chatId: params.chatId,
+        discipline: params.discipline,
+        puzzleId: params.puzzleId,
+        edition: params.edition,
+        telegramId: params.viewerTelegramId,
+        username: params.viewerDisplayName,
+        status: "in_progress",
+        solved: false,
+        attempts: 0,
+      })
+      .onConflictDoNothing();
+  }
 
   const rows = await db
     .select({

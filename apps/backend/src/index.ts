@@ -20,6 +20,7 @@ import { engineRoutes } from "./routes/engine.routes.js";
 import { superadminRoutes } from "./routes/superadmin.routes.js";
 
 const server = Fastify({
+  bodyLimit: 256 * 1024, // 256 KB strict request payload cap
   logger: {
     transport:
       env.NODE_ENV === "development"
@@ -34,9 +35,30 @@ const server = Fastify({
   },
 });
 
+const allowedCorsOrigins = new Set<string>([
+  env.MINI_APP_URL.replace(/\/+$/, ""),
+  "https://web.telegram.org",
+]);
+
 async function bootstrap() {
   await server.register(cors, {
-    origin: true,
+    origin: (origin, cb) => {
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      const normalized = origin.replace(/\/+$/, "");
+      if (
+        allowedCorsOrigins.has(normalized) ||
+        (env.NODE_ENV !== "production" &&
+          (normalized.startsWith("http://localhost:") ||
+            normalized.startsWith("http://127.0.0.1:")))
+      ) {
+        cb(null, true);
+        return;
+      }
+      cb(new Error("Origin not allowed by CORS"), false);
+    },
     credentials: true,
   });
 

@@ -16,6 +16,9 @@ COPY apps/backend ./apps/backend
 
 RUN pnpm --filter shared build
 RUN pnpm --filter backend build
+RUN chown -R node:node /app
+
+USER node
 
 EXPOSE 3000
 

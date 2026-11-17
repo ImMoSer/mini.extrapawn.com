@@ -4,25 +4,41 @@ import {
   type ChallengeAttemptStatus,
   type ChallengeDiscipline,
   type GoActiveChallengesResponseDTO,
+  type PuzzleObjective,
+  type PuzzleStrategyType,
   type SubmitChallengeAttemptRequest,
 } from "shared";
 import { telegramBotService } from "../bot/telegramBot.service.js";
 import { db } from "../db/index.js";
 import { challengeAttempts } from "../db/schema.js";
-import { renderBoardPng } from "../services/boardImage.service.js";
+import {
+  InvalidAttemptSolutionError,
+  verifyAndSanitizeSolvedAttempt,
+} from "../services/attemptVerifier.service.js";
 import {
   buildClubRecordsResponse,
-  ensureClubExists,
+  ClubNotFoundError,
   getViewerTodayActiveChallenges,
   isChallengeExpiredForViewer,
+  requireExistingClub,
 } from "../services/challengeQueries.service.js";
 import {
   buildChallengeStateDTO,
   findChallengeAttemptRef,
   resolveChallengeSnapshot,
-  sanitizeSolvedAttemptMoves,
 } from "../services/challengeState.service.js";
+import {
+  ClubMembershipRequiredError,
+  isClubParticipantMember,
+  requireClubParticipantMembership,
+} from "../services/clubMembership.service.js";
 import { PuzzleNotFoundError } from "../services/puzzleClient.service.js";
+import {
+  attemptIdParamsSchema,
+  challengeParamsSchema,
+  chatIdParamsSchema,
+  submitAttemptBodySchema,
+} from "./schemas.js";
 
 interface ChallengeRouteParams {
   discipline: ChallengeDiscipline;
@@ -32,32 +48,7 @@ interface ChallengeRouteParams {
 }
 
 export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
-  // 1. Dynamic board.png generator
-  fastify.get<{
-    Querystring: {
-      fen: string;
-      orientation?: "white" | "black";
-      lastMove?: string;
-    };
-  }>("/challenges/board-png", async (req, reply) => {
-    const fen = req.query.fen?.trim();
-    if (!fen) {
-      return reply.code(400).send({ error: "Missing 'fen' query parameter" });
-    }
-    const orientation =
-      req.query.orientation === "black" ? "black" : "white";
-    const png = renderBoardPng({
-      fen,
-      orientation,
-      lastMoveUci: req.query.lastMove?.trim(),
-    });
-    return reply
-      .header("Content-Type", "image/png")
-      .header("Cache-Control", "public, max-age=86400")
-      .send(png);
-  });
-
-  // 1b. Active today challenges across all clubs where user participates (/api/challenges/go-feed)
+  // 1. Active today challenges across all clubs where user participates (/api/challenges/go-feed)
   fastify.get(
     "/challenges/go-feed",
     { preHandler: [fastify.authenticate] },
@@ -70,10 +61,13 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // 1c. Resolve deep-link attempt ID (`startapp=g__<id>` / `f__<id>`) to challenge coordinates
+  // 1b. Resolve deep-link attempt ID (`startapp=g__<id>` / `f__<id>`) to challenge coordinates
   fastify.get<{ Params: { attemptId: string } }>(
     "/challenges/attempt-ref/:attemptId",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { params: attemptIdParamsSchema },
+    },
     async (req, reply) => {
       const parsedId = Number.parseInt(req.params.attemptId, 10);
       const ref = await findChallengeAttemptRef(parsedId);
@@ -87,40 +81,63 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
   // 2. Club-wide aggregated leaderboard (/api/challenges/records/:chatId)
   fastify.get<{ Params: { chatId: string } }>(
     "/challenges/records/:chatId",
-    { preHandler: [fastify.authenticate] },
-    async (req) =>
-      buildClubRecordsResponse({
-        chatId: req.params.chatId,
-        viewerTelegramId: req.user.telegramId,
-        viewerIsSuperadmin: req.user.isSuperadmin,
-      })
+    {
+      preHandler: [fastify.authenticate],
+      schema: { params: chatIdParamsSchema },
+    },
+    async (req, reply) => {
+      try {
+        return await buildClubRecordsResponse({
+          chatId: req.params.chatId,
+          viewerTelegramId: req.user.telegramId,
+          viewerIsSuperadmin: req.user.isSuperadmin,
+        });
+      } catch (err) {
+        if (err instanceof ClubNotFoundError) {
+          return reply.code(404).send({ error: err.message });
+        }
+        throw err;
+      }
+    }
   );
 
   // 3. Get Challenge State & Per-Puzzle Leaderboard
   fastify.get<{ Params: ChallengeRouteParams }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { params: challengeParamsSchema },
+    },
     async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
       const displayName = req.user.firstName;
-      const club = await ensureClubExists(chatId);
-
-      const expired = await isChallengeExpiredForViewer({
-        chatId,
-        discipline,
-        puzzleId,
-        edition: safeEdition,
-        viewerTelegramId: req.user.telegramId,
-        clubTimezone: club.timezone,
-      });
-      if (expired) {
-        return reply.code(410).send({
-          error: "Challenge expired. Only today's challenges can be solved.",
-        });
-      }
 
       try {
+        const club = await requireExistingClub(chatId, {
+          allowSuperadminBypass: req.user.isSuperadmin,
+        });
+
+        const expired = await isChallengeExpiredForViewer({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+          viewerTelegramId: req.user.telegramId,
+          clubTimezone: club.timezone,
+        });
+        if (expired) {
+          return reply.code(410).send({
+            error: "Challenge expired. Only today's challenges can be solved.",
+          });
+        }
+
+        const isMember = await isClubParticipantMember({
+          chatId,
+          telegramId: req.user.telegramId,
+          isSuperadmin: req.user.isSuperadmin,
+        });
+
         return await buildChallengeStateDTO({
           chatId,
           discipline,
@@ -129,9 +146,13 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           viewerTelegramId: req.user.telegramId,
           viewerDisplayName: displayName,
           viewerIsSuperadmin: req.user.isSuperadmin,
+          canInitializeAttempt: isMember,
         });
       } catch (err) {
-        if (err instanceof PuzzleNotFoundError) {
+        if (
+          err instanceof ClubNotFoundError ||
+          err instanceof PuzzleNotFoundError
+        ) {
           return reply.code(404).send({ error: err.message });
         }
         throw err;
@@ -139,26 +160,56 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // 4. Submit Challenge Attempt (wrong move or solved completion)
+  // 4. Submit Challenge Attempt (wrong move or verified solved completion)
   fastify.post<{
     Params: ChallengeRouteParams;
     Body: SubmitChallengeAttemptRequest;
   }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId/attempt",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        params: challengeParamsSchema,
+        body: submitAttemptBodySchema,
+      },
+    },
     async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
       const displayName = req.user.firstName;
-      const {
-        solved,
-        time_ms,
-        uci_moves = "",
-        pgn_moves = "",
-        move_times_ms,
-      } = req.body;
+      const { solved, time_ms, uci_moves = "", move_times_ms } = req.body;
 
-      const club = await ensureClubExists(chatId);
+      let club;
+      let snapshot;
+      try {
+        club = await requireExistingClub(chatId, {
+          allowSuperadminBypass: req.user.isSuperadmin,
+        });
+        await requireClubParticipantMembership({
+          chatId,
+          telegramId: req.user.telegramId,
+          isSuperadmin: req.user.isSuperadmin,
+          languageCode: req.user.languageCode,
+        });
+        snapshot = await resolveChallengeSnapshot({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+        });
+      } catch (err) {
+        if (
+          err instanceof ClubNotFoundError ||
+          err instanceof PuzzleNotFoundError
+        ) {
+          return reply.code(404).send({ error: err.message });
+        }
+        if (err instanceof ClubMembershipRequiredError) {
+          return reply.code(403).send({ error: err.message });
+        }
+        throw err;
+      }
+
       const expired = await isChallengeExpiredForViewer({
         chatId,
         discipline,
@@ -172,36 +223,6 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           error: "Challenge expired. Only today's challenges can be solved.",
         });
       }
-
-      let snapshot;
-      try {
-        snapshot = await resolveChallengeSnapshot({
-          chatId,
-          discipline,
-          puzzleId,
-          edition: safeEdition,
-        });
-      } catch (err) {
-        if (err instanceof PuzzleNotFoundError) {
-          return reply.code(404).send({ error: err.message });
-        }
-        throw err;
-      }
-
-      await db
-        .insert(challengeAttempts)
-        .values({
-          chatId,
-          discipline,
-          puzzleId,
-          edition: safeEdition,
-          telegramId: req.user.telegramId,
-          username: displayName,
-          status: "in_progress",
-          solved: false,
-          attempts: 0,
-        })
-        .onConflictDoNothing();
 
       const [current] = await db
         .select()
@@ -217,25 +238,41 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         )
         .limit(1);
 
-      if (
-        current &&
-        current.status !== "solved" &&
-        current.status !== "surrendered"
-      ) {
+      if (!current) {
+        return reply.code(400).send({
+          error: "Challenge board session was not initialized before submission.",
+        });
+      }
+
+      if (current.status !== "solved" && current.status !== "surrendered") {
+        let verifiedMoves = null;
+        if (solved) {
+          try {
+            verifiedMoves = verifyAndSanitizeSolvedAttempt({
+              discipline,
+              strategy: snapshot.challengeRow.strategy as PuzzleStrategyType,
+              objective: snapshot.challengeRow.objective as PuzzleObjective,
+              userColor: snapshot.challengeRow.userColor as "white" | "black",
+              firstMove: snapshot.challengeRow.firstMove as "bot" | "user",
+              puzzleFen: snapshot.challengeRow.puzzleFen,
+              tacticalSolution: snapshot.challengeRow.tacticalSolution,
+              rawUciMoves: uci_moves,
+              rawMoveTimesMs: move_times_ms,
+            });
+          } catch (err) {
+            if (err instanceof InvalidAttemptSolutionError) {
+              return reply.code(400).send({ error: err.message });
+            }
+            throw err;
+          }
+        }
+
         const nextAttempts = current.attempts + 1;
         const nextStatus: ChallengeAttemptStatus = solved
           ? "solved"
           : "in_progress";
         const shouldNotify = solved && !current.notifiedAt;
-
-        const sanitized = solved
-          ? sanitizeSolvedAttemptMoves({
-              discipline,
-              rawUciMoves: uci_moves,
-              rawPgnMoves: pgn_moves,
-              rawMoveTimesMs: move_times_ms,
-            })
-          : null;
+        const clampedTimeMs = Math.max(0, Math.round(time_ms));
 
         await db
           .update(challengeAttempts)
@@ -244,10 +281,12 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
             status: nextStatus,
             solved: solved ? true : current.solved,
             attempts: nextAttempts,
-            solvedTimeMs: solved ? Math.max(0, Math.round(time_ms)) : null,
-            uciMoves: sanitized ? sanitized.uciMoves : current.uciMoves,
-            pgnMoves: sanitized ? sanitized.pgnMoves : current.pgnMoves,
-            moveTimesMs: sanitized ? sanitized.moveTimesMs : current.moveTimesMs,
+            solvedTimeMs: solved ? clampedTimeMs : null,
+            uciMoves: verifiedMoves ? verifiedMoves.uciMoves : current.uciMoves,
+            pgnMoves: verifiedMoves ? verifiedMoves.pgnMoves : current.pgnMoves,
+            moveTimesMs: verifiedMoves
+              ? verifiedMoves.moveTimesMs
+              : current.moveTimesMs,
             notifiedAt: shouldNotify ? new Date() : current.notifiedAt,
             updatedAt: new Date(),
             completedAt: solved ? new Date() : null,
@@ -258,7 +297,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           await telegramBotService.checkAndResumeAutoPause(chatId);
         }
 
-        if (shouldNotify && sanitized) {
+        if (shouldNotify && verifiedMoves) {
           void telegramBotService
             .notifyChallengeSolved({
               chatId,
@@ -268,9 +307,9 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
               attemptId: current.id,
               username: req.user.firstName,
               attempts: nextAttempts,
-              timeMs: Math.max(0, Math.round(time_ms)),
-              userMovesCount: sanitized.userMovesCount,
-              hasMoveTimings: sanitized.hasMoveTimings,
+              timeMs: clampedTimeMs,
+              userMovesCount: verifiedMoves.userMovesCount,
+              hasMoveTimings: verifiedMoves.hasMoveTimings,
             })
             .catch((err) => {
               req.log.error(
@@ -289,6 +328,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
         viewerIsSuperadmin: req.user.isSuperadmin,
+        canInitializeAttempt: false,
         preloadedSnapshot: snapshot,
       });
     }
@@ -297,13 +337,46 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
   // 5. Surrender Challenge (locks status='surrendered' and unlocks analysis & viewing others' solutions)
   fastify.post<{ Params: ChallengeRouteParams }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId/surrender",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { params: challengeParamsSchema },
+    },
     async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
       const displayName = req.user.firstName;
 
-      const club = await ensureClubExists(chatId);
+      let club;
+      let snapshot;
+      try {
+        club = await requireExistingClub(chatId, {
+          allowSuperadminBypass: req.user.isSuperadmin,
+        });
+        await requireClubParticipantMembership({
+          chatId,
+          telegramId: req.user.telegramId,
+          isSuperadmin: req.user.isSuperadmin,
+          languageCode: req.user.languageCode,
+        });
+        snapshot = await resolveChallengeSnapshot({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+        });
+      } catch (err) {
+        if (
+          err instanceof ClubNotFoundError ||
+          err instanceof PuzzleNotFoundError
+        ) {
+          return reply.code(404).send({ error: err.message });
+        }
+        if (err instanceof ClubMembershipRequiredError) {
+          return reply.code(403).send({ error: err.message });
+        }
+        throw err;
+      }
+
       const expired = await isChallengeExpiredForViewer({
         chatId,
         discipline,
@@ -316,21 +389,6 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(410).send({
           error: "Challenge expired. Only today's challenges can be solved.",
         });
-      }
-
-      let snapshot;
-      try {
-        snapshot = await resolveChallengeSnapshot({
-          chatId,
-          discipline,
-          puzzleId,
-          edition: safeEdition,
-        });
-      } catch (err) {
-        if (err instanceof PuzzleNotFoundError) {
-          return reply.code(404).send({ error: err.message });
-        }
-        throw err;
       }
 
       await db
@@ -385,6 +443,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         viewerTelegramId: req.user.telegramId,
         viewerDisplayName: displayName,
         viewerIsSuperadmin: req.user.isSuperadmin,
+        canInitializeAttempt: false,
         preloadedSnapshot: snapshot,
       });
     }

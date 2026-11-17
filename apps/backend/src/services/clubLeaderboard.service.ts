@@ -19,7 +19,13 @@ export async function buildClubsCompetitionLeaderboard(params: {
   const clubRows = await db
     .select()
     .from(clubs)
-    .where(and(ne(clubs.status, "blocked"), ne(clubs.status, "bot_removed")))
+    .where(
+      and(
+        ne(clubs.status, "blocked"),
+        ne(clubs.status, "bot_removed"),
+        ne(clubs.status, "pending")
+      )
+    )
     .orderBy(desc(clubs.memberCount));
 
   const [recentSolved, myAttempts, myAdminRows] = await Promise.all([

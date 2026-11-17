@@ -35,6 +35,7 @@ import {
   users,
 } from "../db/schema.js";
 import { renderBoardPng } from "../services/boardImage.service.js";
+import { invalidateClubMembershipCache } from "../services/clubMembership.service.js";
 import {
   type NormalizedChallengePuzzle,
   puzzleClientService,
@@ -44,6 +45,13 @@ import {
   sendChallengeSolvedNotification,
   sendClubSettingsUpdatedNotification,
 } from "./botNotifications.js";
+import {
+  approvePendingClub,
+  handleSuperadminModerationCallback,
+  rejectPendingClub,
+  sendPendingClubApplicationNotices,
+  type TelegramCallbackQueryPayload,
+} from "./clubModeration.js";
 import {
   callTelegramJson,
   deleteTelegramMessage,
@@ -99,6 +107,7 @@ interface TelegramUpdate {
     old_chat_member: TelegramChatMemberPayload;
     new_chat_member: TelegramChatMemberPayload;
   };
+  callback_query?: TelegramCallbackQueryPayload;
 }
 
 /**
@@ -1443,6 +1452,7 @@ export const telegramBotService = {
     const chatId = String(update.chat.id);
     const targetTelegramId = String(targetUser.id);
     invalidateClubLiveAdminCache(chatId, targetTelegramId);
+    invalidateClubMembershipCache(chatId, targetTelegramId);
 
     const [club] = await db
       .select({
@@ -1517,6 +1527,7 @@ export const telegramBotService = {
     if (status === "left" || status === "kicked") {
       const wasIntentionalLeave = consumeBotInitiatedLeave(chatId);
       invalidateClubLiveAdminCache(chatId);
+      invalidateClubMembershipCache(chatId);
 
       if (existingClub && existingClub.status !== "blocked") {
         await db
@@ -1734,7 +1745,78 @@ export const telegramBotService = {
       topicThreadId = createdThreadId;
     }
 
-    // 9. If reconnecting, verify existing topic still exists before saving; recreate if it was deleted
+    // 9. Determine whether SuperAdmin moderation is required before activating the club
+    const persistedLanguage = normalizeLang(
+      explicitChoice ?? existingClub?.language ?? clubLang
+    );
+    const resolvedClubTitle =
+      update.chat.title || existingClub?.title || "Chess Club";
+    const requiresModeration =
+      !isSuperadminActor &&
+      chatId !== "-1002255301933" &&
+      (!existingClub ||
+        existingClub.status === "pending" ||
+        existingClub.status === "bot_removed");
+
+    if (requiresModeration) {
+      await db
+        .insert(clubs)
+        .values({
+          chatId,
+          title: resolvedClubTitle,
+          username: update.chat.username || null,
+          inviteLink: update.chat.username
+            ? `https://t.me/${update.chat.username}/${topicThreadId}`
+            : null,
+          ownerTelegramId: effectiveOwnerId,
+          topicThreadId,
+          memberCount,
+          language: persistedLanguage,
+          status: "pending",
+          isActive: false,
+          autoPaused: false,
+          autoPauseChallengeId: null,
+          autoPauseMessageId: null,
+          weeklySchedule: createDefaultWeeklySchedule(),
+        })
+        .onConflictDoUpdate({
+          target: clubs.chatId,
+          set: {
+            title: resolvedClubTitle,
+            username: update.chat.username || null,
+            inviteLink: update.chat.username
+              ? `https://t.me/${update.chat.username}/${topicThreadId}`
+              : existingClub?.inviteLink ?? null,
+            ownerTelegramId: effectiveOwnerId,
+            topicThreadId,
+            memberCount,
+            language: persistedLanguage,
+            status: "pending",
+            isActive: false,
+            updatedAt: new Date(),
+          },
+        });
+
+      await this.clearAutoPause(chatId);
+      await this.syncClubAdminsFromTelegram(chatId);
+
+      // Send pending notice + SuperAdmin DM only on fresh submission (not repeated admin permission edits)
+      if (!existingClub || existingClub.status !== "pending") {
+        await sendPendingClubApplicationNotices({
+          chatId,
+          topicThreadId,
+          title: resolvedClubTitle,
+          username: update.chat.username || null,
+          memberCount,
+          language: persistedLanguage,
+          ownerTelegramId: effectiveOwnerId,
+          inviter: update.from,
+        });
+      }
+      return;
+    }
+
+    // 10. Auto-approved onboarding (SuperAdmin / default club) or permission refresh on an already approved club
     let welcomeSent = false;
     if (isOnboardingOrReconnect) {
       const welcomeText = texts.welcomeTopic;
@@ -1767,16 +1849,20 @@ export const telegramBotService = {
       }
     }
 
-    // 10. Upsert club & synchronize all `creator` + `can_manage_topics` admins
-    const persistedLanguage = normalizeLang(
-      explicitChoice ?? existingClub?.language ?? clubLang
-    );
+    const preservedStatus =
+      existingClub && existingClub.status === "paused" && !isOnboardingOrReconnect
+        ? "paused"
+        : "active";
+    const preservedActive =
+      existingClub && existingClub.status === "paused" && !isOnboardingOrReconnect
+        ? false
+        : true;
 
     await db
       .insert(clubs)
       .values({
         chatId,
-        title: update.chat.title || existingClub?.title || "Chess Club",
+        title: resolvedClubTitle,
         username: update.chat.username || null,
         inviteLink: update.chat.username
           ? `https://t.me/${update.chat.username}/${topicThreadId}`
@@ -1785,8 +1871,8 @@ export const telegramBotService = {
         topicThreadId,
         memberCount,
         language: persistedLanguage,
-        status: "active",
-        isActive: true,
+        status: preservedStatus,
+        isActive: preservedActive,
         autoPaused: false,
         autoPauseChallengeId: null,
         autoPauseMessageId: null,
@@ -1795,7 +1881,7 @@ export const telegramBotService = {
       .onConflictDoUpdate({
         target: clubs.chatId,
         set: {
-          title: update.chat.title || existingClub?.title || "Chess Club",
+          title: resolvedClubTitle,
           username: update.chat.username || null,
           inviteLink: update.chat.username
             ? `https://t.me/${update.chat.username}/${topicThreadId}`
@@ -1804,8 +1890,8 @@ export const telegramBotService = {
           topicThreadId,
           memberCount,
           language: persistedLanguage,
-          status: "active",
-          isActive: true,
+          status: preservedStatus,
+          isActive: preservedActive,
           updatedAt: new Date(),
         },
       });
@@ -1823,6 +1909,26 @@ export const telegramBotService = {
         );
       }
     }
+  },
+
+  async approveClubApplication(chatId: string) {
+    return approvePendingClub(chatId, {
+      verifyBotHasClubPermissions: (id, lang) =>
+        this.verifyBotHasClubPermissions(id, lang),
+      publishChallengeToClub: (id) => this.publishChallengeToClub(id),
+      leaveClubChat: (id, msg) => this.leaveClubChat(id, msg),
+      clearAutoPause: (id) => this.clearAutoPause(id),
+    });
+  },
+
+  async rejectClubApplication(chatId: string) {
+    return rejectPendingClub(chatId, {
+      verifyBotHasClubPermissions: (id, lang) =>
+        this.verifyBotHasClubPermissions(id, lang),
+      publishChallengeToClub: (id) => this.publishChallengeToClub(id),
+      leaveClubChat: (id, msg) => this.leaveClubChat(id, msg),
+      clearAutoPause: (id) => this.clearAutoPause(id),
+    });
   },
 
   /**
@@ -1970,13 +2076,27 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
     const res = await callTelegramJson<TelegramUpdate[]>("getUpdates", {
       offset: lastUpdateOffset,
       timeout: 15,
-      allowed_updates: ["message", "my_chat_member", "chat_member"],
+      allowed_updates: [
+        "message",
+        "my_chat_member",
+        "chat_member",
+        "callback_query",
+      ],
     });
     if (!res.ok || !res.result) return;
 
     for (const upd of res.result) {
       lastUpdateOffset = Math.max(lastUpdateOffset, upd.update_id + 1);
-      if (upd.my_chat_member) {
+      if (upd.callback_query) {
+        await handleSuperadminModerationCallback(upd.callback_query, {
+          verifyBotHasClubPermissions: (id, lang) =>
+            telegramBotService.verifyBotHasClubPermissions(id, lang),
+          publishChallengeToClub: (id) =>
+            telegramBotService.publishChallengeToClub(id),
+          leaveClubChat: (id, msg) => telegramBotService.leaveClubChat(id, msg),
+          clearAutoPause: (id) => telegramBotService.clearAutoPause(id),
+        });
+      } else if (upd.my_chat_member) {
         await telegramBotService.handleMyChatMemberUpdate(upd.my_chat_member);
       } else if (upd.chat_member) {
         await telegramBotService.handleChatMemberUpdate(upd.chat_member);

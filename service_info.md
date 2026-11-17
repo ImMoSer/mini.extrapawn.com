@@ -41,22 +41,26 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── bot/
 │   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API, deleteMessages, накопление/сброс topic_message_ids
 │   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([▶ | ▶▶]) и настройках
+│   │       │   ├── clubModeration.ts         # Модерация заявок клубов (pending -> active / reject) + инлайн-кнопки ЛС BOSS
 │   │       │   └── telegramBot.service.ts    # Long-polling бот, расписание клубов, публикация и авто-пауза
 │   │       ├── services/
-│   │       │   ├── boardImage.service.ts     # Генератор PNG 600x600 (SVG -> PNG через Resvg)
+│   │       │   ├── boardImage.service.ts     # Внутренний генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
 │   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и tableservice:5000
+│   │       │   ├── clubMembership.service.ts # Проверка членства участника в супергруппе (getChatMember + TTL-кэш)
+│   │       │   ├── attemptVerifier.service.ts# In-memory chessops валидация ходов решения и генерация канонического SAN
 │   │       │   ├── challengeQueries.service.ts # Сборка ChallengeStateDTO, анти-спойлер и списки задач
-│   │       │   ├── challengeState.service.ts # Приём попыток, санитизация ходов/таймингов и сдача
-│   │       │   ├── clubLeaderboard.service.ts# Межклубный лидерборд за 7/30 дней
+│   │       │   ├── challengeState.service.ts # Приём попыток, санитизация таймингов и сдача
+│   │       │   ├── clubLeaderboard.service.ts# Межклубный лидерборд за 7 дней
 │   │       │   ├── clubSettings.service.ts   # Валидация интервалов расписания и ошибок роутов клубов
 │   │       │   └── clubMapper.ts             # Маппинг строки клуба в ClubSummaryDTO
 │   │       └── routes/
+│   │           ├── schemas.ts                # Runtime JSON Schema валидация всех входящих запросов
 │   │           ├── cabinet.routes.ts         # GET /api/cabinet, PATCH /api/cabinet/language
 │   │           ├── challenges.routes.ts      # Доска, лидерборд задачи/клуба, attempt, surrender, attempt-ref
 │   │           ├── clubs.routes.ts           # Межклубный чемпионат /api/clubs/leaderboard, настройки клуба
-│   │           ├── engine.routes.ts          # Прокси ходов бота (/api/engine/move) и таблиц (/api/engine/tablebase)
-│   │           └── superadmin.routes.ts      # Управление клубами и промо-кампаниями (/api/superadmin/*)
+│   │           ├── engine.routes.ts          # Прокси ходов бота (/api/engine/bestmove) и таблиц (/api/engine/gaviota)
+│   │           └── superadmin.routes.ts      # Управление клубами, модерация заявок и промо (/api/superadmin/*)
 │   └── frontend/                             # Vue 3 + Vite + Tailwind CSS v4 + Feature-Sliced Design
 │       ├── Dockerfile                        # Мультистейдж сборка (node:24-alpine -> nginx:alpine)
 │       ├── nginx.conf                        # Раздача SPA + проксирование /api/* на mini-backend:3000
@@ -156,7 +160,12 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
   2. Число участников `>= 30` (кроме BOSSа `5106981885` и дефолтного клуба).
   3. Пригласивший имеет статус `creator` или `administrator` с правом `can_manage_topics === true`, а владелец группы (`creator`) не превысил лимит в 2 клуба.
   4. Создаёт тему `createForumTopic(chat_id, "ExtraPawnTeleBot")` (или использует `293770` для `EXTRAPAWNCLUB`).
-- При успешной проверке регистрирует клуб в `tele_app.clubs` (с `is_active = TRUE` и 7-дневным расписанием `weekly_schedule`), синхронизирует всех управляющих (`creator` + админы с `can_manage_topics`) в `tele_app.club_admins` и сразу публикует приветствие и первый челлендж.
+- При успешной технической проверке:
+  - Если бота подключил внешний владелец/админ, клуб регистрируется со статусом **`pending` (`is_active = FALSE`, скрыт из `/clubs` и `GO`)**, синхронизирует `tele_app.club_admins`, отправляет уведомление об ожидании в топик и карточку заявки с кнопками `[ ✅ Одобрить | 🚫 Отклонить ]` в ЛС `SuperAdmin` (`5106981885`) и в `/super-admin`. После нажатия `✅ Одобрить` статус меняется на `active`, публикуются приветствие и первый челлендж; при `🚫 Отклонить` бот вежливо покидает чат и очищает заявку из БД.
+  - Если бота подключил сам `SuperAdmin` (`5106981885`), клуб активируется мгновенно (`status = 'active'`).
+- **Защита честной игры и целостности БД (`SEC-01`, `SEC-04`):**
+  - HTTP-роуты никогда не создают фейковые клубы или челленджи (принимаются только реально опубликованные ботом записи в активных клубах).
+  - Сдача попыток (`POST /attempt`, `POST /surrender`) проверяет реальное членство игрока в супергруппе (`getChatMember` с TTL-кэшем `15 мин`), инициализацию сессии доски (`GET /challenges/...`) и прогоняет цепочку ходов `uci_moves` через `chessops` в памяти Node.js (`0` вызовов движков, `< 0.3 мс`, серверная генерация канонического `SAN`).
 - **Инциденты (удаление бота или лишение прав) и полное удаление клуба:**
   - Если в подключённой супергруппе бота исключают/блокируют (`left` / `kicked`) или лишают обязательных прав (`can_manage_topics` / `can_delete_messages`), данные клуба **не удаляются**: клуб переводится в `bot_removed` или `paused`, а BOSSу (`5106981885`) мгновенно отправляется уведомление в ЛС Telegram с деталями инцидента, автором действия и кнопкой перехода в `/super-admin`.
   - Полное удаление клуба и его данных из PostgreSQL доступно **исключительно `SuperAdmin` (`5106981885`)**.

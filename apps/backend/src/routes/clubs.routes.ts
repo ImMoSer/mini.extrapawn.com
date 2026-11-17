@@ -22,14 +22,24 @@ import {
   getClubRouteErrors,
   validateWeeklyScheduleIntervals,
 } from "../services/clubSettings.service.js";
+import {
+  chatIdParamsSchema,
+  onboardingLanguageBodySchema,
+  publishNowBodySchema,
+  toggleClubActiveBodySchema,
+  updateClubSettingsBodySchema,
+} from "./schemas.js";
 
 export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
   // Pre-registers the mandatory group language (EN / DE / RU) chosen by an admin before adding @ExtraPawnTeleBot
-  fastify.post<{ Body: { language?: string } }>(
+  fastify.post<{ Body: { language: string } }>(
     "/clubs/onboarding-language",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { body: onboardingLanguageBodySchema },
+    },
     async (req, reply) => {
-      const lang = req.body?.language;
+      const lang = req.body.language;
       if (lang !== "en" && lang !== "de" && lang !== "ru") {
         const msg = getClubRouteErrors(req.user.languageCode).invalidLanguage;
         return reply.code(400).send({ error: msg });
@@ -41,6 +51,7 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
       return { ok: true, language: lang };
     }
   );
+
   // Inter-Club 7-Day Competition Leaderboard (/api/clubs/leaderboard)
   fastify.get(
     "/clubs/leaderboard",
@@ -54,7 +65,10 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Params: { chatId: string } }>(
     "/clubs/:chatId",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: { params: chatIdParamsSchema },
+    },
     async (req, reply) => {
       const [row] = await db
         .select()
@@ -68,7 +82,11 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
           .send({ error: getClubRouteErrors(req.user.languageCode).notFound });
       }
 
-      if (!req.user.isSuperadmin && row.status !== "blocked" && row.status !== "bot_removed") {
+      if (
+        !req.user.isSuperadmin &&
+        row.status !== "blocked" &&
+        row.status !== "bot_removed"
+      ) {
         await telegramBotService.verifyLiveClubManager(
           row.chatId,
           req.user.telegramId,
@@ -89,7 +107,13 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
     Body: { is_active: boolean };
   }>(
     "/clubs/:chatId/active",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        params: chatIdParamsSchema,
+        body: toggleClubActiveBodySchema,
+      },
+    },
     async (req, reply) => {
       const [row] = await db
         .select()
@@ -117,6 +141,9 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (row.status === "blocked" && !req.user.isSuperadmin) {
         return reply.code(403).send({ error: errs.blockedClub });
+      }
+      if (row.status === "pending" && !req.user.isSuperadmin) {
+        return reply.code(403).send({ error: errs.pendingApproval });
       }
       if (row.status === "bot_removed") {
         return reply.code(403).send({
@@ -178,7 +205,13 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
     Body: UpdateClubSettingsRequest;
   }>(
     "/clubs/:chatId/settings",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        params: chatIdParamsSchema,
+        body: updateClubSettingsBodySchema,
+      },
+    },
     async (req, reply) => {
       const [row] = await db
         .select()
@@ -228,10 +261,15 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(400).send({ error: scheduleError });
       }
 
-      const nextIsActive =
-        typeof body.is_active === "boolean"
+      const isPendingModeration =
+        row.status === "pending" && !req.user.isSuperadmin;
+
+      const nextIsActive = isPendingModeration
+        ? false
+        : typeof body.is_active === "boolean"
           ? body.is_active
           : Boolean(row.isActive);
+
       if (nextIsActive) {
         const botRights = await telegramBotService.verifyBotHasClubPermissions(
           row.chatId,
@@ -241,10 +279,13 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(403).send({ error: botRights.reason });
         }
       }
+
       const nextStatus =
         row.status === "blocked" && !req.user.isSuperadmin
           ? "blocked"
-          : body.status || (nextIsActive ? "active" : "paused");
+          : isPendingModeration
+            ? "pending"
+            : body.status || (nextIsActive ? "active" : "paused");
 
       // Derive fallback filter_disciplines/difficulties from schedule slots for manual publish-now
       const allSlotDisciplines = new Set<ChallengeDiscipline>();
@@ -288,17 +329,19 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(clubs.chatId, req.params.chatId))
         .returning();
 
-      void telegramBotService
-        .notifyClubSettingsUpdated({
-          chatId: req.params.chatId,
-          firstName: req.user.firstName,
-        })
-        .catch((err) => {
-          req.log.error(
-            err,
-            "[ClubsRoute] Failed to send Telegram settings notification"
-          );
-        });
+      if (!isPendingModeration) {
+        void telegramBotService
+          .notifyClubSettingsUpdated({
+            chatId: req.params.chatId,
+            firstName: req.user.firstName,
+          })
+          .catch((err) => {
+            req.log.error(
+              err,
+              "[ClubsRoute] Failed to send Telegram settings notification"
+            );
+          });
+      }
 
       return mapClubRowToSummaryDTO(
         updated ?? row,
@@ -320,7 +363,13 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>(
     "/clubs/:chatId/publish-now",
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        params: chatIdParamsSchema,
+        body: publishNowBodySchema,
+      },
+    },
     async (req, reply) => {
       const [row] = await db
         .select()
@@ -348,6 +397,9 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (row.status === "blocked") {
         return reply.code(403).send({ error: errs.blockedClub });
+      }
+      if (row.status === "pending" && !req.user.isSuperadmin) {
+        return reply.code(403).send({ error: errs.pendingApproval });
       }
       if (row.status === "bot_removed") {
         return reply.code(403).send({
@@ -378,7 +430,10 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
   // SuperAdmin ONLY: disconnect & purge all club data from PostgreSQL
   fastify.delete<{ Params: { chatId: string } }>(
     "/clubs/:chatId",
-    { preHandler: [fastify.requireSuperadmin] },
+    {
+      preHandler: [fastify.requireSuperadmin],
+      schema: { params: chatIdParamsSchema },
+    },
     async (req, reply) => {
       const { chatId } = req.params;
       const [row] = await db
@@ -423,4 +478,3 @@ export const clubsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 };
-
