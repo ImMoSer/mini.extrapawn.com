@@ -7,7 +7,33 @@ import { clubs } from "../db/schema.js";
 export interface TelegramApiResponse<T> {
   ok: boolean;
   result?: T;
+  error_code?: number;
   description?: string;
+}
+
+/**
+ * Unwraps Node/Undici `TypeError: fetch failed` causes so socket-level codes
+ * (`ECONNRESET`, `ETIMEDOUT`, `UND_ERR_SOCKET`, `UND_ERR_CONNECT_TIMEOUT`) appear in logs.
+ */
+export function describeNetworkError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const base = error.message || error.name;
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") {
+    return base;
+  }
+  const c = cause as {
+    code?: string;
+    syscall?: string;
+    message?: string;
+  };
+  const parts: string[] = [];
+  if (c.code) parts.push(c.code);
+  if (c.syscall) parts.push(`syscall=${c.syscall}`);
+  if (c.message && c.message !== base) parts.push(c.message);
+  return parts.length > 0 ? `${base} [${parts.join(", ")}]` : base;
 }
 
 export function normalizeLang(raw: string | null | undefined): AppLanguage {
@@ -47,13 +73,31 @@ export async function callTelegramJson<T>(
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      return (await res.json()) as TelegramApiResponse<T>;
+      const rawText = await res.text();
+      try {
+        return JSON.parse(rawText) as TelegramApiResponse<T>;
+      } catch {
+        if (
+          (res.status === 500 ||
+            res.status === 502 ||
+            res.status === 503 ||
+            res.status === 504) &&
+          attempt < maxAttempts
+        ) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+          continue;
+        }
+        return {
+          ok: false,
+          error_code: res.status,
+          description: `Telegram HTTP ${res.status}`,
+        };
+      }
     } catch (err) {
       lastError = err;
       if (attempt < maxAttempts) {
         console.warn(
-          `[TelegramBot] ${method} network error (attempt ${attempt}/${maxAttempts}), retrying...`,
-          err instanceof Error ? err.message : err
+          `[TelegramBot] ${method} network error (attempt ${attempt}/${maxAttempts}), retrying: ${describeNetworkError(err)}`
         );
         await new Promise((r) => setTimeout(r, 400 * attempt));
       }
@@ -74,8 +118,7 @@ export async function deleteTelegramMessage(
     });
   } catch (err) {
     console.warn(
-      `[TelegramBot] deleteMessage failed for chat ${chatId} (message ${messageId}):`,
-      err instanceof Error ? err.message : err
+      `[TelegramBot] deleteMessage failed for chat ${chatId} (message ${messageId}): ${describeNetworkError(err)}`
     );
   }
 }

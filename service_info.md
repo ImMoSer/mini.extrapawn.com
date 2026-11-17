@@ -32,17 +32,19 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │   ├── Dockerfile
 │   │   └── src/
 │   │       ├── index.ts                      # Точка входа Fastify + запуск циклов бота
-│   │       ├── config/env.ts                 # Fail-Fast валидация переменных окружения
+│   │       ├── config/
+│   │       │   ├── networkBootstrap.ts       # Первоочередной ESM-бутстрап IPv4-first + отключение Happy Eyeballs (дублируется в NODE_OPTIONS)
+│   │       │   └── env.ts                    # Fail-Fast валидация переменных окружения
 │   │       ├── db/
 │   │       │   ├── schema.ts                 # Drizzle-схема `tele_app.*` (5 таблиц)
 │   │       │   └── index.ts                  # Пул postgres + идемпотентный bootstrapDatabase()
 │   │       ├── plugins/
 │   │       │   └── telegramAuth.ts           # Проверка HMAC-SHA256 Telegram initData + upsert юзера
 │   │       ├── bot/
-│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API, deleteMessages, накопление/сброс topic_message_ids
+│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API (3 ретрая + раскрытие err.cause), deleteMessages, topic_message_ids
 │   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([▶ | ▶▶]) и настройках
 │   │       │   ├── clubModeration.ts         # Модерация заявок клубов (pending -> active / reject) + инлайн-кнопки ЛС BOSS
-│   │       │   └── telegramBot.service.ts    # Long-polling бот, расписание клубов, публикация и авто-пауза
+│   │       │   └── telegramBot.service.ts    # Long-polling бот (фильтрация одиночных обрывов <3), расписание клубов, публикация и авто-пауза
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Внутренний генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)

@@ -55,6 +55,7 @@ import {
 import {
   callTelegramJson,
   deleteTelegramMessage,
+  describeNetworkError,
   escapeHtml,
   flushClubTopicMessagesOnPublish,
   normalizeLang,
@@ -711,8 +712,7 @@ async function sendTelegramPhoto(params: {
       lastError = err;
       if (attempt < maxAttempts) {
         console.warn(
-          `[TelegramBot] sendPhoto network error for chat ${params.chatId} (attempt ${attempt}/${maxAttempts}), retrying...`,
-          err instanceof Error ? err.message : err
+          `[TelegramBot] sendPhoto network error for chat ${params.chatId} (attempt ${attempt}/${maxAttempts}), retrying: ${describeNetworkError(err)}`
         );
         await new Promise((r) => setTimeout(r, 500 * attempt));
       }
@@ -2069,6 +2069,7 @@ function getClubZonedTime(
 
 let pollingActive = false;
 let lastUpdateOffset = 0;
+let consecutivePollErrors = 0;
 
 async function pollTelegramUpdatesOnce(): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) return;
@@ -2083,7 +2084,31 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
         "callback_query",
       ],
     });
-    if (!res.ok || !res.result) return;
+    if (!res.ok) {
+      if (res.error_code === 409) {
+        console.warn(
+          "[TelegramBot] 409 Conflict on getUpdates (another instance is polling); backing off 30s."
+        );
+        await new Promise((r) => setTimeout(r, 30_000));
+        return;
+      }
+      consecutivePollErrors += 1;
+      if (consecutivePollErrors === 3 || consecutivePollErrors % 10 === 0) {
+        console.warn(
+          `[TelegramBot] Polling API error x${consecutivePollErrors} (will retry in 2s): ${res.description ?? `HTTP ${res.error_code ?? "unknown"}`}`
+        );
+      }
+      return;
+    }
+
+    if (consecutivePollErrors >= 3) {
+      console.info(
+        `[TelegramBot] Long-polling restored after ${consecutivePollErrors} consecutive errors.`
+      );
+    }
+    consecutivePollErrors = 0;
+
+    if (!res.result) return;
 
     for (const upd of res.result) {
       lastUpdateOffset = Math.max(lastUpdateOffset, upd.update_id + 1);
@@ -2128,10 +2153,12 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn(
-      "[TelegramBot] Polling transient network error (will retry in 2s):",
-      err instanceof Error ? err.message : err
-    );
+    consecutivePollErrors += 1;
+    if (consecutivePollErrors === 3 || consecutivePollErrors % 10 === 0) {
+      console.warn(
+        `[TelegramBot] Polling network error x${consecutivePollErrors} (will retry in 2s): ${describeNetworkError(err)}`
+      );
+    }
   }
 }
 
