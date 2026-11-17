@@ -59,7 +59,8 @@ import {
   escapeHtml,
   flushClubTopicMessagesOnPublish,
   normalizeLang,
-  type TelegramApiResponse,
+  sendTelegramPhoto,
+  sendTelegramPhotoWithOutcome,
 } from "./telegramApi.js";
 
 export interface TelegramUserPayload {
@@ -655,72 +656,8 @@ async function handleClubSendPermissionFailure(
   }
 }
 
-async function sendTelegramPhoto(params: {
-  chatId: string;
-  messageThreadId?: number;
-  pngBuffer: Buffer;
-  caption: string;
-  replyMarkup?: Record<string, unknown>;
-  onApiError?: (description: string) => void;
-}): Promise<number | null> {
-  if (!env.TELEGRAM_BOT_TOKEN) {
-    return null;
-  }
-
-  const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`;
-  const maxAttempts = 3;
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const form = new FormData();
-      form.append("chat_id", params.chatId);
-      if (params.messageThreadId && params.messageThreadId > 0) {
-        form.append("message_thread_id", String(params.messageThreadId));
-      }
-      form.append("parse_mode", "HTML");
-      form.append("caption", params.caption);
-      if (params.replyMarkup) {
-        form.append("reply_markup", JSON.stringify(params.replyMarkup));
-      }
-      const blob = new Blob([new Uint8Array(params.pngBuffer)], {
-        type: "image/png",
-      });
-      form.append("photo", blob, "board.png");
-
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { Connection: "close" },
-        body: form,
-        signal: AbortSignal.timeout(25_000),
-      });
-      const data = (await res.json()) as TelegramApiResponse<{
-        message_id: number;
-      }>;
-      if (!data.ok) {
-        console.error(
-          `[TelegramBot] sendPhoto API error for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}):`,
-          data.description
-        );
-        if (data.description && params.onApiError) {
-          params.onApiError(data.description);
-        }
-        return null;
-      }
-      return data.result?.message_id ?? null;
-    } catch (err) {
-      lastError = err;
-      if (attempt < maxAttempts) {
-        console.warn(
-          `[TelegramBot] sendPhoto network error for chat ${params.chatId} (attempt ${attempt}/${maxAttempts}), retrying: ${describeNetworkError(err)}`
-        );
-        await new Promise((r) => setTimeout(r, 500 * attempt));
-      }
-    }
-  }
-
-  throw lastError;
-}
+// Per-club lock preventing concurrent `publishChallengeToClub` executions
+const inFlightClubPublishes = new Set<string>();
 
 export const telegramBotService = {
   /**
@@ -738,226 +675,285 @@ export const telegramBotService = {
       puzzleId?: string;
     }
   ) {
-    const [club] = await db
-      .select()
-      .from(clubs)
-      .where(eq(clubs.chatId, chatId))
-      .limit(1);
-
-    if (!club) {
-      throw new Error(`[TelegramBot] Club ${chatId} not found`);
+    if (inFlightClubPublishes.has(chatId)) {
+      console.warn(
+        `[TelegramBot] Skipping concurrent publishChallengeToClub for ${chatId} (already in flight).`
+      );
+      return null;
     }
-    if (club.status === "blocked") {
-      throw new Error(`[TelegramBot] Club ${chatId} is blocked`);
-    }
+    inFlightClubPublishes.add(chatId);
 
-    // Resolve slot from weeklySchedule when override is not explicitly passed,
-    // so discipline + difficulty + focus_group + focus_key + objective always stay synchronized.
-    const schedule = normalizeWeeklySchedule(club.weeklySchedule);
-    const zoned = getClubZonedTime(new Date(), club.timezone);
-    const todaySlots = schedule[zoned.day]?.enabled
-      ? schedule[zoned.day].slots
-      : [];
-    const activeHourSlot = todaySlots.find(
-      (s) => zoned.hour >= s.from_hour && zoned.hour < s.to_hour
-    );
-    const allEnabledSlots: ClubScheduleSlot[] = [];
-    for (const day of ALL_DAYS_OF_WEEK) {
-      if (schedule[day].enabled) {
-        allEnabledSlots.push(...schedule[day].slots);
+    try {
+      const [club] = await db
+        .select()
+        .from(clubs)
+        .where(eq(clubs.chatId, chatId))
+        .limit(1);
+
+      if (!club) {
+        throw new Error(`[TelegramBot] Club ${chatId} not found`);
       }
-    }
-    const fallbackSlot =
-      activeHourSlot ??
-      todaySlots[0] ??
-      (allEnabledSlots.length > 0
-        ? allEnabledSlots[Math.floor(Math.random() * allEnabledSlots.length)]
-        : undefined);
-
-    const chosenDiscipline: ChallengeDiscipline =
-      override?.discipline ?? fallbackSlot?.discipline ?? "tactics";
-
-    const chosenDifficulty: ChallengeDifficulty =
-      override?.difficulty ?? fallbackSlot?.difficulty ?? "Novice";
-
-    const chosenFocusGroup =
-      override?.focusGroup ?? fallbackSlot?.focus_group ?? "all";
-    const chosenFocusKey =
-      override?.focusKey ?? fallbackSlot?.focus_key ?? "all";
-    const chosenObjective =
-      override?.objective ?? fallbackSlot?.objective ?? "all";
-
-    // Get already published puzzle IDs in this club for this discipline
-    const previousRows = await db
-      .select({ puzzleId: clubChallenges.puzzleId })
-      .from(clubChallenges)
-      .where(
-        and(
-          eq(clubChallenges.chatId, chatId),
-          eq(clubChallenges.discipline, chosenDiscipline)
-        )
-      );
-    const excludeIds = previousRows.map((r) => r.puzzleId);
-
-    const puzzle = override?.puzzleId
-      ? await puzzleClientService.getPuzzleById(
-          chosenDiscipline,
-          override.puzzleId
-        )
-      : await puzzleClientService.selectClubPuzzle({
-          discipline: chosenDiscipline,
-          difficulty: chosenDifficulty,
-          focusGroup: chosenFocusGroup,
-          focusKey: chosenFocusKey,
-          objective: chosenObjective,
-          excludeIds,
-        });
-
-    const edition = String(previousRows.length + 1);
-    const pngBuffer = renderBoardPng({
-      fen: puzzle.puzzleFen,
-      orientation: puzzle.userColor,
-      lastMoveUci: puzzle.lastMoveUci,
-    });
-
-    const lang = normalizeLang(club.language);
-    const caption = buildChallengeCaption(puzzle, lang);
-    const solveStartParam = encodeChallengeStartParam(
-      puzzle.discipline,
-      puzzle.puzzleId,
-      edition,
-      chatId
-    );
-    const recordsStartParam = encodeClubLeaderboardStartParam(chatId);
-
-    const solveBtnText =
-      lang === "en"
-        ? "🔥 SOLVE"
-        : lang === "de"
-          ? "🔥 LÖSEN"
-          : "🔥 ЗАТАЩИТЬ";
-    const tableBtnText =
-      lang === "en"
-        ? "🏆 TABLE"
-        : lang === "de"
-          ? "🏆 TABELLE"
-          : "🏆 ТАБЛИЦА";
-
-    let apiErrorDescription: string | undefined;
-    const tgMessageId = await sendTelegramPhoto({
-      chatId,
-      messageThreadId: club.topicThreadId,
-      pngBuffer,
-      caption,
-      onApiError: (desc) => {
-        apiErrorDescription = desc;
-      },
-      replyMarkup: {
-        inline_keyboard: [
-          [
-            {
-              text: solveBtnText,
-              url: `https://t.me/${env.BOT_USERNAME}?startapp=${solveStartParam}`,
-            },
-            {
-              text: tableBtnText,
-              url: `https://t.me/${env.BOT_USERNAME}?startapp=${recordsStartParam}`,
-            },
-          ],
-        ],
-      },
-    });
-
-    if (!tgMessageId && env.TELEGRAM_BOT_TOKEN) {
-      if (apiErrorDescription) {
-        await handleClubSendPermissionFailure(club, apiErrorDescription);
+      if (club.status === "blocked") {
+        throw new Error(`[TelegramBot] Club ${chatId} is blocked`);
       }
-      throw new Error(
-        `[TelegramBot] sendPhoto returned no message_id for chat ${chatId} (thread ${club.topicThreadId})${apiErrorDescription ? `: ${apiErrorDescription}` : ""}`
+
+      // Resolve slot from weeklySchedule when override is not explicitly passed,
+      // so discipline + difficulty + focus_group + focus_key + objective always stay synchronized.
+      const schedule = normalizeWeeklySchedule(club.weeklySchedule);
+      const zoned = getClubZonedTime(new Date(), club.timezone);
+      const todaySlots = schedule[zoned.day]?.enabled
+        ? schedule[zoned.day].slots
+        : [];
+      const activeHourSlot = todaySlots.find(
+        (s) => zoned.hour >= s.from_hour && zoned.hour < s.to_hour
       );
-    }
+      const allEnabledSlots: ClubScheduleSlot[] = [];
+      for (const day of ALL_DAYS_OF_WEEK) {
+        if (schedule[day].enabled) {
+          allEnabledSlots.push(...schedule[day].slots);
+        }
+      }
+      const fallbackSlot =
+        activeHourSlot ??
+        todaySlots[0] ??
+        (allEnabledSlots.length > 0
+          ? allEnabledSlots[Math.floor(Math.random() * allEnabledSlots.length)]
+          : undefined);
 
-    // Batch-clean previous challenge board(s) + all solve & settings notifications from the previous cycle
-    const previousActiveMessages = await db
-      .select({
-        id: clubChallenges.id,
-        tgMessageId: clubChallenges.tgMessageId,
-      })
-      .from(clubChallenges)
-      .where(
-        and(
-          eq(clubChallenges.chatId, chatId),
-          isNotNull(clubChallenges.tgMessageId)
-        )
-      );
+      const chosenDiscipline: ChallengeDiscipline =
+        override?.discipline ?? fallbackSlot?.discipline ?? "tactics";
 
-    const previousBoardIds = previousActiveMessages
-      .map((prev) => prev.tgMessageId)
-      .filter((id): id is number => Boolean(id && id !== tgMessageId));
+      const chosenDifficulty: ChallengeDifficulty =
+        override?.difficulty ?? fallbackSlot?.difficulty ?? "Novice";
 
-    await flushClubTopicMessagesOnPublish(
-      chatId,
-      tgMessageId ?? null,
-      previousBoardIds
-    );
+      const chosenFocusGroup =
+        override?.focusGroup ?? fallbackSlot?.focus_group ?? "all";
+      const chosenFocusKey =
+        override?.focusKey ?? fallbackSlot?.focus_key ?? "all";
+      const chosenObjective =
+        override?.objective ?? fallbackSlot?.objective ?? "all";
 
-    if (previousActiveMessages.length > 0) {
-      await db
-        .update(clubChallenges)
-        .set({ tgMessageId: null })
+      // Get already published puzzle IDs and highest edition in this club for this discipline
+      const previousRows = await db
+        .select({
+          puzzleId: clubChallenges.puzzleId,
+          edition: clubChallenges.edition,
+        })
+        .from(clubChallenges)
         .where(
           and(
             eq(clubChallenges.chatId, chatId),
+            eq(clubChallenges.discipline, chosenDiscipline)
+          )
+        );
+      const excludeIds = previousRows.map((r) => r.puzzleId);
+      const maxPrevEdition = previousRows.reduce((max, r) => {
+        const parsed = Number.parseInt(r.edition, 10);
+        return Number.isFinite(parsed) && parsed > max ? parsed : max;
+      }, 0);
+
+      const puzzle = override?.puzzleId
+        ? await puzzleClientService.getPuzzleById(
+            chosenDiscipline,
+            override.puzzleId
+          )
+        : await puzzleClientService.selectClubPuzzle({
+            discipline: chosenDiscipline,
+            difficulty: chosenDifficulty,
+            focusGroup: chosenFocusGroup,
+            focusKey: chosenFocusKey,
+            objective: chosenObjective,
+            excludeIds,
+          });
+
+      const edition = String(maxPrevEdition + 1);
+      const pngBuffer = renderBoardPng({
+        fen: puzzle.puzzleFen,
+        orientation: puzzle.userColor,
+        lastMoveUci: puzzle.lastMoveUci,
+      });
+
+      const lang = normalizeLang(club.language);
+      const caption = buildChallengeCaption(puzzle, lang);
+      const solveStartParam = encodeChallengeStartParam(
+        puzzle.discipline,
+        puzzle.puzzleId,
+        edition,
+        chatId
+      );
+      const recordsStartParam = encodeClubLeaderboardStartParam(chatId);
+
+      const solveBtnText =
+        lang === "en"
+          ? "🔥 SOLVE"
+          : lang === "de"
+            ? "🔥 LÖSEN"
+            : "🔥 ЗАТАЩИТЬ";
+      const tableBtnText =
+        lang === "en"
+          ? "🏆 TABLE"
+          : lang === "de"
+            ? "🏆 TABELLE"
+            : "🏆 ТАБЛИЦА";
+
+      // Persist snapshot BEFORE network upload so even if Telegram responds slowly (>60s)
+      // and delivers asynchronously, the solve button never points to a missing DB row.
+      const [inserted] = await db
+        .insert(clubChallenges)
+        .values({
+          chatId,
+          discipline: puzzle.discipline,
+          puzzleId: puzzle.puzzleId,
+          edition,
+          difficulty: puzzle.difficulty,
+          botEngine: puzzle.botEngine,
+          initialFen: puzzle.initialFen,
+          puzzleFen: puzzle.puzzleFen,
+          userColor: puzzle.userColor,
+          firstMove: puzzle.firstMove,
+          strategy: puzzle.strategy,
+          objective: puzzle.objective,
+          tacticalSolution: puzzle.tacticalSolution,
+          domain: puzzle.domain,
+          category: puzzle.category,
+          tgMessageId: null,
+        })
+        .onConflictDoUpdate({
+          target: [
+            clubChallenges.chatId,
+            clubChallenges.discipline,
+            clubChallenges.puzzleId,
+            clubChallenges.edition,
+          ],
+          set: {
+            publishedAt: new Date(),
+          },
+        })
+        .returning();
+
+      if (!inserted) {
+        throw new Error(
+          `[TelegramBot] Failed inserting challenge snapshot for chat ${chatId}`
+        );
+      }
+
+      const photoOutcome = await sendTelegramPhotoWithOutcome({
+        chatId,
+        messageThreadId: club.topicThreadId,
+        pngBuffer,
+        caption,
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              {
+                text: solveBtnText,
+                url: `https://t.me/${env.BOT_USERNAME}?startapp=${solveStartParam}`,
+              },
+              {
+                text: tableBtnText,
+                url: `https://t.me/${env.BOT_USERNAME}?startapp=${recordsStartParam}`,
+              },
+            ],
+          ],
+        },
+      });
+
+      const tgMessageId = photoOutcome.messageId;
+
+      if (!tgMessageId && env.TELEGRAM_BOT_TOKEN) {
+        if (photoOutcome.deliveryUncertain) {
+          // Upload reached the socket before timeout/504: keep snapshot & mark published
+          // so subsequent minute ticks do not spam duplicate boards into the topic.
+          console.warn(
+            `[TelegramBot] sendPhoto delivery uncertain for chat ${chatId} (challenge #${inserted.id}); keeping snapshot and updating lastPublishedAt to prevent duplicate posts.`
+          );
+          await db
+            .update(clubs)
+            .set({
+              lastPublishedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(clubs.chatId, chatId));
+          await this.clearAutoPause(chatId);
+          return inserted;
+        }
+
+        // Definite non-delivery (502/503/4xx/pre-connect failure): roll back snapshot row cleanly
+        await db
+          .delete(clubChallenges)
+          .where(eq(clubChallenges.id, inserted.id));
+
+        if (photoOutcome.apiErrorDescription) {
+          await handleClubSendPermissionFailure(
+            club,
+            photoOutcome.apiErrorDescription
+          );
+        }
+        throw new Error(
+          `[TelegramBot] sendPhoto returned no message_id for chat ${chatId} (thread ${club.topicThreadId})${photoOutcome.apiErrorDescription ? `: ${photoOutcome.apiErrorDescription}` : ""}`
+        );
+      }
+
+      // Batch-clean previous challenge board(s) + all solve & settings notifications from the previous cycle
+      const previousActiveMessages = await db
+        .select({
+          id: clubChallenges.id,
+          tgMessageId: clubChallenges.tgMessageId,
+        })
+        .from(clubChallenges)
+        .where(
+          and(
+            eq(clubChallenges.chatId, chatId),
+            ne(clubChallenges.id, inserted.id),
             isNotNull(clubChallenges.tgMessageId)
           )
         );
-    }
 
-    const [inserted] = await db
-      .insert(clubChallenges)
-      .values({
+      const previousBoardIds = previousActiveMessages
+        .map((prev) => prev.tgMessageId)
+        .filter((id): id is number => Boolean(id && id !== tgMessageId));
+
+      await flushClubTopicMessagesOnPublish(
         chatId,
-        discipline: puzzle.discipline,
-        puzzleId: puzzle.puzzleId,
-        edition,
-        difficulty: puzzle.difficulty,
-        botEngine: puzzle.botEngine,
-        initialFen: puzzle.initialFen,
-        puzzleFen: puzzle.puzzleFen,
-        userColor: puzzle.userColor,
-        firstMove: puzzle.firstMove,
-        strategy: puzzle.strategy,
-        objective: puzzle.objective,
-        tacticalSolution: puzzle.tacticalSolution,
-        domain: puzzle.domain,
-        category: puzzle.category,
-        tgMessageId,
-      })
-      .onConflictDoUpdate({
-        target: [
-          clubChallenges.chatId,
-          clubChallenges.discipline,
-          clubChallenges.puzzleId,
-          clubChallenges.edition,
-        ],
-        set: {
-          tgMessageId,
-          publishedAt: new Date(),
-        },
-      })
-      .returning();
+        tgMessageId ?? null,
+        previousBoardIds
+      );
 
-    await db
-      .update(clubs)
-      .set({
-        lastPublishedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(clubs.chatId, chatId));
+      if (previousActiveMessages.length > 0) {
+        await db
+          .update(clubChallenges)
+          .set({ tgMessageId: null })
+          .where(
+            and(
+              eq(clubChallenges.chatId, chatId),
+              ne(clubChallenges.id, inserted.id),
+              isNotNull(clubChallenges.tgMessageId)
+            )
+          );
+      }
 
-    await this.clearAutoPause(chatId);
+      const [finalized] = tgMessageId
+        ? await db
+            .update(clubChallenges)
+            .set({ tgMessageId })
+            .where(eq(clubChallenges.id, inserted.id))
+            .returning()
+        : [inserted];
 
-    return inserted;
+      await db
+        .update(clubs)
+        .set({
+          lastPublishedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(clubs.chatId, chatId));
+
+      await this.clearAutoPause(chatId);
+
+      return finalized ?? inserted;
+    } finally {
+      inFlightClubPublishes.delete(chatId);
+    }
   },
 
   async notifyChallengeSolved(
@@ -2294,11 +2290,17 @@ async function purgeExpiredSevenDayRecords(): Promise<void> {
   }
 }
 
+let isSchedulerTickRunning = false;
+
 async function runScheduledClubsTick(): Promise<void> {
-  await purgeExpiredSevenDayRecords();
-  if (!env.TELEGRAM_BOT_TOKEN) return;
-  await reconcileConnectedClubsAdminsPeriodically();
+  if (isSchedulerTickRunning) {
+    return;
+  }
+  isSchedulerTickRunning = true;
   try {
+    await purgeExpiredSevenDayRecords();
+    if (!env.TELEGRAM_BOT_TOKEN) return;
+    await reconcileConnectedClubsAdminsPeriodically();
     const activeClubs = await db
       .select()
       .from(clubs)
@@ -2417,6 +2419,8 @@ async function runScheduledClubsTick(): Promise<void> {
     }
   } catch (err) {
     console.error("[TelegramBot] Scheduler tick error:", err);
+  } finally {
+    isSchedulerTickRunning = false;
   }
 }
 

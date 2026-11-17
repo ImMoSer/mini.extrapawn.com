@@ -9,6 +9,23 @@ export interface TelegramApiResponse<T> {
   result?: T;
   error_code?: number;
   description?: string;
+  parameters?: {
+    retry_after?: number;
+  };
+}
+
+export interface SendTelegramPhotoParams {
+  chatId: string;
+  messageThreadId?: number;
+  pngBuffer: Buffer;
+  caption: string;
+  replyMarkup?: Record<string, unknown>;
+}
+
+export interface SendTelegramPhotoOutcome {
+  messageId: number | null;
+  deliveryUncertain: boolean;
+  apiErrorDescription?: string;
 }
 
 /**
@@ -34,6 +51,30 @@ export function describeNetworkError(error: unknown): string {
   if (c.syscall) parts.push(`syscall=${c.syscall}`);
   if (c.message && c.message !== base) parts.push(c.message);
   return parts.length > 0 ? `${base} [${parts.join(", ")}]` : base;
+}
+
+/**
+ * Returns `true` ONLY when a network failure occurred BEFORE the HTTP request body
+ * could reach Telegram's servers (DNS lookup or TCP/TLS connect failure).
+ * Post-upload timeouts (`TimeoutError`/`AbortError`) or mid-flight socket resets (`ECONNRESET`)
+ * return `false` so non-idempotent `sendPhoto` uploads are never blindly duplicated.
+ */
+function isSafePreConnectError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "TimeoutError" || error.name === "AbortError") {
+    return false;
+  }
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") return false;
+  const code = (cause as { code?: string }).code;
+  return (
+    code === "ECONNREFUSED" ||
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    code === "EHOSTUNREACH" ||
+    code === "ENETUNREACH" ||
+    code === "UND_ERR_CONNECT_TIMEOUT"
+  );
 }
 
 export function normalizeLang(raw: string | null | undefined): AppLanguage {
@@ -224,4 +265,134 @@ export async function flushClubTopicMessagesOnPublish(
       .set({ topicMessageIds: [] })
       .where(eq(clubs.chatId, chatId));
   }
+}
+
+/**
+ * Uploads a PNG photo to Telegram with strict idempotency safety:
+ * - Waits up to `60s` so slow Telegram DC responses still return `message_id`.
+ * - Retries (`maxAttempts = 2`) ONLY when the upload was provably NOT accepted
+ *   (`502`/`503`/`429` or pre-body TCP/DNS connect failure).
+ * - Never retries post-upload timeouts (`TimeoutError`/`504`/`ECONNRESET`), returning
+ *   `deliveryUncertain: true` so the caller will not post ghost duplicates.
+ */
+export async function sendTelegramPhotoWithOutcome(
+  params: SendTelegramPhotoParams
+): Promise<SendTelegramPhotoOutcome> {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    return { messageId: null, deliveryUncertain: false };
+  }
+
+  const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  const maxAttempts = 2;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const form = new FormData();
+      form.append("chat_id", params.chatId);
+      if (params.messageThreadId && params.messageThreadId > 0) {
+        form.append("message_thread_id", String(params.messageThreadId));
+      }
+      form.append("parse_mode", "HTML");
+      form.append("caption", params.caption);
+      if (params.replyMarkup) {
+        form.append("reply_markup", JSON.stringify(params.replyMarkup));
+      }
+      const blob = new Blob([new Uint8Array(params.pngBuffer)], {
+        type: "image/png",
+      });
+      form.append("photo", blob, "board.png");
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Connection: "close" },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+
+      const rawText = await res.text();
+      let data: TelegramApiResponse<{ message_id: number }> | null = null;
+      try {
+        data = JSON.parse(rawText) as TelegramApiResponse<{
+          message_id: number;
+        }>;
+      } catch {
+        data = null;
+      }
+
+      if (data?.ok) {
+        return {
+          messageId: data.result?.message_id ?? null,
+          deliveryUncertain: false,
+        };
+      }
+
+      const statusCode = data?.error_code ?? res.status;
+      const description = data?.description ?? `Telegram HTTP ${res.status}`;
+
+      // 504 Gateway Timeout means Telegram's upstream may still finish delivering the photo
+      if (statusCode === 504) {
+        console.warn(
+          `[TelegramBot] sendPhoto HTTP 504 for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}); not retrying to prevent duplicate post.`
+        );
+        return {
+          messageId: null,
+          deliveryUncertain: true,
+          apiErrorDescription: description,
+        };
+      }
+
+      const isSafeRetryStatus =
+        statusCode === 502 ||
+        statusCode === 503 ||
+        (statusCode === 429 && (data?.parameters?.retry_after ?? 99) <= 10);
+
+      if (isSafeRetryStatus && attempt < maxAttempts) {
+        const delayMs =
+          statusCode === 429
+            ? (data?.parameters?.retry_after ?? 2) * 1000
+            : 2_500;
+        console.warn(
+          `[TelegramBot] sendPhoto HTTP ${statusCode} (${description}) for chat ${params.chatId}, retrying once in ${delayMs}ms...`
+        );
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+
+      console.error(
+        `[TelegramBot] sendPhoto API error for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}): ${description}`
+      );
+      return {
+        messageId: null,
+        deliveryUncertain: false,
+        apiErrorDescription: description,
+      };
+    } catch (err) {
+      if (isSafePreConnectError(err) && attempt < maxAttempts) {
+        console.warn(
+          `[TelegramBot] sendPhoto pre-connect error for chat ${params.chatId}, retrying once in 2s: ${describeNetworkError(err)}`
+        );
+        await new Promise((r) => setTimeout(r, 2_000));
+        continue;
+      }
+
+      const uncertain = !isSafePreConnectError(err);
+      console.warn(
+        `[TelegramBot] sendPhoto ${uncertain ? "post-upload timeout/socket reset (no retry to prevent duplicate)" : "connect failure"} for chat ${params.chatId}: ${describeNetworkError(err)}`
+      );
+      return {
+        messageId: null,
+        deliveryUncertain: uncertain,
+        apiErrorDescription: describeNetworkError(err),
+      };
+    }
+  }
+
+  return { messageId: null, deliveryUncertain: false };
+}
+
+export async function sendTelegramPhoto(
+  params: SendTelegramPhotoParams
+): Promise<number | null> {
+  const outcome = await sendTelegramPhotoWithOutcome(params);
+  return outcome.messageId;
 }
