@@ -2,7 +2,6 @@ import type { BotEngineId } from "shared";
 import { env } from "../config/env.js";
 
 const maiaHubUrl = env.MAIA_HUB_URL.replace(/\/+$/, "");
-const tableServiceUrl = env.TABLESERVICE_URL.replace(/\/+$/, "");
 const coachEngineUrl = env.COACH_ENGINE_URL.replace(/\/+$/, "");
 
 export function resolveBotEngine(): BotEngineId {
@@ -43,37 +42,6 @@ export const engineClientService = {
   },
 
   /**
-   * Requests Gaviota tablebase lines for positions with <= 5 pieces from `tableservice:5000`.
-   */
-  async getGaviotaLines(
-    fen: string,
-    maxCandidates: number = 5,
-    includePv: boolean = false
-  ): Promise<unknown> {
-    const response = await fetch(`${tableServiceUrl}/gaviota/explainer-lines`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        fen,
-        max_candidates: maxCandidates,
-        include_pv: includePv,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `[EngineClient] TableService Gaviota HTTP ${response.status}: ${errorText}`
-      );
-    }
-
-    return await response.json();
-  },
-
-  /**
    * Requests Coach position explanation and visual_commands from `stockfish_server:5000/uci_fen`.
    */
   async analyzeCoachUciFen(
@@ -104,4 +72,3 @@ export const engineClientService = {
     return await response.json();
   },
 };
-

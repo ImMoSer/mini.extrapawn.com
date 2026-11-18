@@ -16,15 +16,14 @@ import {
 } from "@/entities/chess/lib/chessPosition";
 import { apiRequest } from "@/shared/api/httpClient";
 import { playAppliedMoveSound, playChessSound } from "@/shared/lib/sound";
+import { triggerHapticNotification } from "@/shared/lib/telegram";
 import {
-  triggerHapticImpact,
-  triggerHapticNotification,
-} from "@/shared/lib/telegram";
+  BOT_NORMALIZED_MOVE_TIME_MS,
+  createChallengeEngineFlow,
+  parseChallengeBoardRoot,
+  type EvaluatedMoveResult,
+} from "./challengeEngineFlow";
 import { useChallengeTimeline } from "./useChallengeTimeline";
-
-const BOT_NORMALIZED_MOVE_TIME_MS = 250;
-const MIN_USER_MOVE_TIME_MS = 100;
-const MAX_USER_MOVE_TIME_MS = 10_000;
 
 export const useChallengeSessionStore = defineStore("challengeSession", () => {
   const boardStore = useBoardStore();
@@ -37,8 +36,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   );
   const boardRevision = ref(0);
   const lastMove = ref<[Key, Key] | undefined>(undefined);
-  const expectedSolutionMoves = ref<string[]>([]);
-  const scenarioStepIndex = ref(0);
+  const solvedTacticalMoves = ref<string[]>([]);
 
   const playedUciMoves = ref<string[]>([]);
   const playedSanMoves = ref<string[]>([]);
@@ -61,7 +59,6 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
   let turnStartedAt = Date.now();
 
   const analysisMode = ref<"none" | "stockfish" | "coach">("none");
-  const gaviotaHint = ref<string | null>(null);
 
   const timeline = useChallengeTimeline({
     boardStore,
@@ -96,6 +93,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       Boolean(challenge.value) &&
       !isFinished.value &&
       !isLoading.value &&
+      !isBotThinking.value &&
       playedUciMoves.value.length > 0
   );
 
@@ -134,46 +132,13 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     playedUciMoves.value = [];
     playedSanMoves.value = [];
     playedMoveTimesMs.value = [];
-    gaviotaHint.value = null;
     turnStartedAt = Date.now();
 
-    const rawSolution = (state.tactical_solution || "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-
-    currentFen.value = state.puzzle_fen;
-
-    let initialLastMove: [Key, Key] | undefined = undefined;
-    let resolvedRootFen = state.puzzle_fen;
-    let resolvedPrefixMoves: string[] = [];
-
-    if (state.first_move === "bot" && rawSolution[0]) {
-      const m0 = rawSolution[0];
-      initialLastMove = [m0.slice(0, 2) as Key, m0.slice(2, 4) as Key];
-      expectedSolutionMoves.value = rawSolution.slice(1);
-
-      if (state.initial_fen && state.initial_fen !== state.puzzle_fen) {
-        try {
-          const checkSetup = applyMoveToFen(state.initial_fen, m0);
-          if (
-            checkSetup.nextFen.split(" ")[0] === state.puzzle_fen.split(" ")[0]
-          ) {
-            resolvedRootFen = state.initial_fen;
-            resolvedPrefixMoves = [checkSetup.uci];
-          }
-        } catch {
-          resolvedRootFen = state.puzzle_fen;
-          resolvedPrefixMoves = [];
-        }
-      }
-    } else {
-      expectedSolutionMoves.value = rawSolution;
-    }
-
-    lastMove.value = initialLastMove;
-    coachRootFen.value = resolvedRootFen;
-    coachPrefixMoves.value = resolvedPrefixMoves;
+    const parsedRoot = parseChallengeBoardRoot(state);
+    solvedTacticalMoves.value = parsedRoot.solvedTacticalMoves;
+    lastMove.value = parsedRoot.initialLastMove;
+    coachRootFen.value = parsedRoot.coachRootFen;
+    coachPrefixMoves.value = parsedRoot.coachPrefixMoves;
 
     boardStore.setupPosition(state.puzzle_fen, state.user_color, {
       skipSound: options?.skipSound,
@@ -181,18 +146,20 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     const canonicalRootFen = boardStore.fen;
     currentFen.value = canonicalRootFen;
     boardStore.syncVisualCues({
-      lastMove: initialLastMove,
+      lastMove: parsedRoot.initialLastMove,
       lastNag: null,
       shapes: [],
     });
 
-    timeline.resetTimelineRoot(canonicalRootFen, initialLastMove);
-    scenarioStepIndex.value = 0;
+    timeline.resetTimelineRoot(canonicalRootFen, parsedRoot.initialLastMove);
     boardRevision.value += 1;
   }
 
   function restoreOwnSolvedTimelineIfAvailable(state: ChallengeStateDTO) {
     if (state.my_entry?.status !== "solved") return;
+    const parsedRoot = parseChallengeBoardRoot(state);
+    solvedTacticalMoves.value = parsedRoot.solvedTacticalMoves;
+
     if (state.my_entry.uci_moves) {
       timeline.loadMovesIntoTimeline(
         state.my_entry.uci_moves,
@@ -202,15 +169,143 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
       );
       return;
     }
-    if (state.discipline === "tactics" && expectedSolutionMoves.value.length > 0) {
+    if (state.discipline === "tactics" && solvedTacticalMoves.value.length > 0) {
       timeline.loadMovesIntoTimeline(
-        expectedSolutionMoves.value.join(" "),
+        solvedTacticalMoves.value.join(" "),
         null,
         null,
         true
       );
     }
   }
+
+  function restoreActiveDraftIfAvailable(state: ChallengeStateDTO): boolean {
+    const entry = state.my_entry;
+    if (entry?.status !== "in_progress" || !entry.uci_moves) {
+      return false;
+    }
+    const tokens = entry.uci_moves.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return false;
+    }
+
+    for (let i = 0; i < tokens.length; i += 1) {
+      const uci = tokens[i];
+      if (!uci) break;
+      const applied = applyMoveToFen(currentFen.value, uci);
+      const delayMs = entry.move_times_ms?.[i] ?? BOT_NORMALIZED_MOVE_TIME_MS;
+      currentFen.value = applied.nextFen;
+      lastMove.value = [applied.from, applied.to];
+      playedUciMoves.value.push(applied.uci);
+      playedSanMoves.value.push(applied.san);
+      playedMoveTimesMs.value.push(delayMs);
+      timeline.appendMoveToTimeline(applied, { delayMs });
+    }
+
+    boardStore.loadPosition(currentFen.value, { skipSound: true });
+    boardStore.syncVisualCues({
+      lastMove: lastMove.value,
+      lastNag: null,
+      shapes: [],
+    });
+    turnStartedAt = Date.now();
+    boardRevision.value += 1;
+    return true;
+  }
+
+  function commitAppliedMove(
+    applied: AppliedMoveResult,
+    plyDurationMs: number
+  ): EvaluatedMoveResult {
+    currentFen.value = applied.nextFen;
+    lastMove.value = [applied.from, applied.to];
+    boardStore.applyUciMove(applied.uci, { skipSound: true });
+    playedUciMoves.value.push(applied.uci);
+    playedSanMoves.value.push(applied.san);
+    playedMoveTimesMs.value.push(plyDurationMs);
+    timeline.appendMoveToTimeline(applied, { delayMs: plyDurationMs });
+    turnStartedAt = Date.now();
+
+    const repetition = isThreefoldRepetition(
+      timeline.timelineSteps.value.map((step) => step.fen),
+      applied.nextFen
+    );
+
+    return {
+      ...applied,
+      isThreefoldRepetition: repetition,
+      isDraw: applied.isDraw || repetition,
+    };
+  }
+
+  function rollbackOptimisticMove() {
+    if (!challenge.value) return;
+    const prevUci = playedUciMoves.value.slice(0, -1);
+    const prevTimes = playedMoveTimesMs.value.slice(0, -1);
+    setupBoardFromChallenge(challenge.value, { skipSound: true });
+    for (let i = 0; i < prevUci.length; i += 1) {
+      const uci = prevUci[i];
+      if (!uci) break;
+      const applied = applyMoveToFen(currentFen.value, uci);
+      const delay = prevTimes[i] ?? BOT_NORMALIZED_MOVE_TIME_MS;
+      currentFen.value = applied.nextFen;
+      lastMove.value = [applied.from, applied.to];
+      playedUciMoves.value.push(applied.uci);
+      playedSanMoves.value.push(applied.san);
+      playedMoveTimesMs.value.push(delay);
+      timeline.appendMoveToTimeline(applied, { delayMs: delay });
+    }
+    boardStore.loadPosition(currentFen.value, { skipSound: true });
+    boardStore.syncVisualCues({
+      lastMove: lastMove.value,
+      lastNag: null,
+      shapes: [],
+    });
+    boardRevision.value += 1;
+  }
+
+  function onSolvedFromServer(state: ChallengeStateDTO) {
+    stopTimer();
+    challenge.value = state;
+    const parsedRoot = parseChallengeBoardRoot(state);
+    solvedTacticalMoves.value = parsedRoot.solvedTacticalMoves;
+    elapsedMs.value = state.my_entry?.solved_time_ms ?? elapsedMs.value;
+    playChessSound("victory_applause");
+    triggerHapticNotification("success");
+    feedbackBanner.value = {
+      type: "success",
+      messageKey: "challenge_solved_banner",
+    };
+  }
+
+  function onFailedAttemptFromServer(state: ChallengeStateDTO) {
+    stopTimer();
+    isBotThinking.value = false;
+    challenge.value = state;
+    playChessSound("tactics_error");
+    triggerHapticNotification("error");
+    feedbackBanner.value = {
+      type: "error",
+      messageKey: "challenge_wrong_move",
+    };
+    setupBoardFromChallenge(state, { skipSound: true });
+    elapsedMs.value = state.my_entry?.elapsed_ms ?? 0;
+    startTimer();
+  }
+
+  const engineFlow = createChallengeEngineFlow({
+    challenge,
+    currentFen,
+    boardRevision,
+    isBotThinking,
+    error,
+    getTurnStartedAt: () => turnStartedAt,
+    isFinished: () => isFinished.value,
+    commitAppliedMove,
+    rollbackOptimisticMove,
+    onSolvedFromServer,
+    onFailedAttemptFromServer,
+  });
 
   async function loadChallenge(params: {
     discipline: ChallengeDiscipline;
@@ -249,224 +344,20 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
           messageKey: "challenge_surrendered_banner",
         };
       } else {
-        elapsedMs.value = 0;
+        const resumed = restoreActiveDraftIfAvailable(res);
+        if (resumed) {
+          feedbackBanner.value = {
+            type: "info",
+            messageKey: "challenge_resumed_banner",
+          };
+        }
+        elapsedMs.value = res.my_entry?.elapsed_ms ?? 0;
         startTimer();
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
       isLoading.value = false;
-    }
-  }
-
-  async function submitAttemptToBackend(solved: boolean): Promise<void> {
-    if (!challenge.value) return;
-    const c = challenge.value;
-    const includeHistory = solved && c.discipline !== "tactics";
-    try {
-      const updated = await apiRequest<ChallengeStateDTO>(
-        `/challenges/${encodeURIComponent(c.discipline)}/${encodeURIComponent(
-          c.puzzle_id
-        )}/${encodeURIComponent(c.edition)}/${encodeURIComponent(
-          c.chat_id
-        )}/attempt`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            solved,
-            time_ms: elapsedMs.value,
-            uci_moves: solved ? playedUciMoves.value.join(" ") : "",
-            pgn_moves: includeHistory ? playedSanMoves.value.join(" ") : "",
-            move_times_ms: includeHistory ? playedMoveTimesMs.value : undefined,
-          }),
-        }
-      );
-      challenge.value = updated;
-    } catch (err) {
-      console.error("[ChallengeSession] submitAttempt failed:", err);
-    }
-  }
-
-  async function completeSolvedChallenge(): Promise<void> {
-    stopTimer();
-    playChessSound("victory_applause");
-    triggerHapticNotification("success");
-    feedbackBanner.value = {
-      type: "success",
-      messageKey: "challenge_solved_banner",
-    };
-    await submitAttemptToBackend(true);
-  }
-
-  async function recordFailedAttempt(resetToStart: boolean): Promise<void> {
-    stopTimer();
-    error.value = null;
-    isBotThinking.value = false;
-    playChessSound("tactics_error");
-    triggerHapticNotification("error");
-    feedbackBanner.value = {
-      type: "error",
-      messageKey: "challenge_wrong_move",
-    };
-    if (resetToStart && challenge.value) {
-      setupBoardFromChallenge(challenge.value, { skipSound: true });
-    } else {
-      boardStore.loadPosition(currentFen.value, { skipSound: true });
-      boardStore.syncVisualCues({ lastMove: lastMove.value, lastNag: null });
-      boardRevision.value += 1;
-    }
-    await submitAttemptToBackend(false);
-    elapsedMs.value = 0;
-    startTimer();
-  }
-
-  async function checkGaviotaIfFewPieces(fen: string): Promise<void> {
-    const snap = analyzeFenPosition(fen);
-    if (snap.piecesCount > 5) {
-      gaviotaHint.value = null;
-      return;
-    }
-    try {
-      const res = await apiRequest<{
-        candidates?: { uci: string; outcome?: string; dtm?: number }[];
-      }>("/engine/gaviota", {
-        method: "POST",
-        body: JSON.stringify({
-          fen,
-          max_candidates: 3,
-          include_pv: false,
-        }),
-      });
-      const top = res?.candidates?.[0];
-      if (top) {
-        gaviotaHint.value = `Gaviota TB: ${top.uci} (${top.outcome ?? "TB"}${
-          top.dtm !== undefined ? ` DTM ${top.dtm}` : ""
-        })`;
-      }
-    } catch {
-      // Ignore if TableService is unreachable
-    }
-  }
-
-  type EvaluatedMoveResult = AppliedMoveResult & {
-    isThreefoldRepetition: boolean;
-  };
-
-  function commitAppliedMove(
-    applied: AppliedMoveResult,
-    actor: "user" | "bot"
-  ): EvaluatedMoveResult {
-    const now = Date.now();
-    const plyDurationMs =
-      actor === "user"
-        ? Math.min(
-            MAX_USER_MOVE_TIME_MS,
-            Math.max(MIN_USER_MOVE_TIME_MS, now - turnStartedAt)
-          )
-        : BOT_NORMALIZED_MOVE_TIME_MS;
-
-    currentFen.value = applied.nextFen;
-    lastMove.value = [applied.from, applied.to];
-    boardStore.applyUciMove(applied.uci, { skipSound: true });
-    playedUciMoves.value.push(applied.uci);
-    playedSanMoves.value.push(applied.san);
-    playedMoveTimesMs.value.push(plyDurationMs);
-    timeline.appendMoveToTimeline(applied, { delayMs: plyDurationMs });
-
-    // Reset turn clock right when the move lands on board so user thinking time excludes bot roundtrip
-    turnStartedAt = Date.now();
-
-    const repetition = isThreefoldRepetition(
-      timeline.timelineSteps.value.map((step) => step.fen),
-      applied.nextFen
-    );
-
-    return {
-      ...applied,
-      isThreefoldRepetition: repetition,
-      isDraw: applied.isDraw || repetition,
-    };
-  }
-
-  async function handleTerminalMoveOutcome(
-    evaluated: EvaluatedMoveResult,
-    actor: "user" | "bot"
-  ): Promise<boolean> {
-    if (!challenge.value) return false;
-
-    if (evaluated.isCheckmate) {
-      if (actor === "user") {
-        await completeSolvedChallenge();
-      } else {
-        await recordFailedAttempt(true);
-      }
-      return true;
-    }
-
-    if (evaluated.isDraw) {
-      if (challenge.value.objective === "hold_draw") {
-        await completeSolvedChallenge();
-      } else {
-        await recordFailedAttempt(true);
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  async function requestBotSparringMove(): Promise<void> {
-    if (!challenge.value) return;
-    const revisionAtRequest = boardRevision.value;
-    isBotThinking.value = true;
-    error.value = null;
-    try {
-      const res = await apiRequest<{ bestMove: string | null }>(
-        "/engine/bestmove",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            engine: challenge.value.bot_engine,
-            start_fen: challenge.value.puzzle_fen,
-            moves: playedUciMoves.value,
-          }),
-        }
-      );
-
-      if (
-        boardRevision.value !== revisionAtRequest ||
-        !challenge.value ||
-        isFinished.value
-      ) {
-        return;
-      }
-
-      if (!res.bestMove) {
-        throw new Error(
-          "[ChallengeSession] Engine returned empty bestMove for non-terminal position."
-        );
-      }
-
-      const evaluated = commitAppliedMove(
-        applyMoveToFen(currentFen.value, res.bestMove),
-        "bot"
-      );
-      playAppliedMoveSound(evaluated);
-
-      void checkGaviotaIfFewPieces(currentFen.value);
-
-      await handleTerminalMoveOutcome(evaluated, "bot");
-    } catch (err) {
-      if (boardRevision.value !== revisionAtRequest) {
-        return;
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      error.value = message;
-      console.error("[ChallengeSession] Bot move failed:", err);
-    } finally {
-      if (boardRevision.value === revisionAtRequest) {
-        isBotThinking.value = false;
-      }
     }
   }
 
@@ -498,101 +389,34 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
     error.value = null;
     feedbackBanner.value = null;
-
-    const expectedUci = expectedSolutionMoves.value[scenarioStepIndex.value];
-    if (expectedUci) {
-      const preview = applyMoveToFen(currentFen.value, uciMove);
-
-      const isMatch =
-        uciMove === expectedUci ||
-        (uciMove.slice(0, 4) === expectedUci.slice(0, 4) &&
-          uciMove.length === 5 &&
-          expectedUci.length === 4) ||
-        preview.isCheckmate;
-
-      if (!isMatch) {
-        await recordFailedAttempt(true);
-        return;
-      }
-
-      const evaluated = commitAppliedMove(preview, "user");
-      scenarioStepIndex.value += 1;
-      triggerHapticImpact("light");
-      playAppliedMoveSound(evaluated);
-
-      if (await handleTerminalMoveOutcome(evaluated, "user")) {
-        return;
-      }
-
-      if (
-        scenarioStepIndex.value >= expectedSolutionMoves.value.length &&
-        challenge.value.strategy === "scenarioOnly"
-      ) {
-        await completeSolvedChallenge();
-        return;
-      }
-
-      const botUci = expectedSolutionMoves.value[scenarioStepIndex.value];
-      if (botUci) {
-        const revisionAtDelay = boardRevision.value;
-        isBotThinking.value = true;
-        let botEvaluated: EvaluatedMoveResult | null = null;
-        try {
-          await new Promise((r) => setTimeout(r, BOT_NORMALIZED_MOVE_TIME_MS));
-          if (
-            boardRevision.value !== revisionAtDelay ||
-            !challenge.value ||
-            isFinished.value
-          ) {
-            return;
-          }
-          botEvaluated = commitAppliedMove(
-            applyMoveToFen(currentFen.value, botUci),
-            "bot"
-          );
-          scenarioStepIndex.value += 1;
-        } finally {
-          if (boardRevision.value === revisionAtDelay) {
-            isBotThinking.value = false;
-          }
-        }
-        if (!botEvaluated) {
-          return;
-        }
-        playAppliedMoveSound(botEvaluated);
-
-        if (await handleTerminalMoveOutcome(botEvaluated, "bot")) {
-          return;
-        }
-      }
-
-      if (
-        scenarioStepIndex.value >= expectedSolutionMoves.value.length &&
-        challenge.value.strategy === "scenarioPlus" &&
-        positionSnapshot.value.turnColor !== challenge.value.user_color
-      ) {
-        await requestBotSparringMove();
-      }
-      return;
-    }
-
-    const evaluated = commitAppliedMove(
-      applyMoveToFen(currentFen.value, uciMove),
-      "user"
-    );
-    triggerHapticImpact("light");
-    playAppliedMoveSound(evaluated);
-
-    if (await handleTerminalMoveOutcome(evaluated, "user")) {
-      return;
-    }
-
-    await requestBotSparringMove();
+    await engineFlow.executeActiveSolvingMove(uciMove);
   }
 
   async function resetChallengeAttempt(): Promise<void> {
-    if (!canReset.value) return;
-    await recordFailedAttempt(true);
+    if (!canReset.value || !challenge.value) return;
+    stopTimer();
+    error.value = null;
+    isBotThinking.value = true;
+    boardRevision.value += 1;
+
+    const c = challenge.value;
+    try {
+      const updated = await apiRequest<ChallengeStateDTO>(
+        `/challenges/${encodeURIComponent(c.discipline)}/${encodeURIComponent(
+          c.puzzle_id
+        )}/${encodeURIComponent(c.edition)}/${encodeURIComponent(
+          c.chat_id
+        )}/reset`,
+        { method: "POST" }
+      );
+      isBotThinking.value = false;
+      onFailedAttemptFromServer(updated);
+    } catch (err) {
+      isBotThinking.value = false;
+      error.value = err instanceof Error ? err.message : String(err);
+      startTimer();
+      console.error("[ChallengeSession] reset failed:", err);
+    }
   }
 
   async function surrenderChallenge(): Promise<void> {
@@ -614,6 +438,8 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
         { method: "POST" }
       );
       challenge.value = updated;
+      const parsedRoot = parseChallengeBoardRoot(updated);
+      solvedTacticalMoves.value = parsedRoot.solvedTacticalMoves;
       analysisMode.value = "coach";
       feedbackBanner.value = {
         type: "info",
@@ -666,7 +492,6 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     analysisMode,
     isWasmAnalysisEnabled,
     isCoachAnalysisEnabled,
-    gaviotaHint,
     positionSnapshot,
     isFinished,
     isReplayActive: timeline.isReplayActive,

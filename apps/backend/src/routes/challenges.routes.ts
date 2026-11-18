@@ -1,20 +1,19 @@
 import { and, eq } from "drizzle-orm";
 import { FastifyPluginAsync } from "fastify";
 import {
-  type ChallengeAttemptStatus,
   type ChallengeDiscipline,
   type GoActiveChallengesResponseDTO,
-  type PuzzleObjective,
-  type PuzzleStrategyType,
-  type SubmitChallengeAttemptRequest,
+  type PlayChallengeMoveRequest,
 } from "shared";
 import { telegramBotService } from "../bot/telegramBot.service.js";
 import { db } from "../db/index.js";
 import { challengeAttempts } from "../db/schema.js";
+import { InvalidAttemptSolutionError } from "../services/attemptVerifier.service.js";
 import {
-  InvalidAttemptSolutionError,
-  verifyAndSanitizeSolvedAttempt,
-} from "../services/attemptVerifier.service.js";
+  AttemptSessionError,
+  playChallengeMove,
+  resetChallengeAttempt,
+} from "../services/challengePlay.service.js";
 import {
   buildClubRecordsResponse,
   ClubNotFoundError,
@@ -37,7 +36,7 @@ import {
   attemptIdParamsSchema,
   challengeParamsSchema,
   chatIdParamsSchema,
-  submitAttemptBodySchema,
+  playChallengeMoveBodySchema,
 } from "./schemas.js";
 
 interface ChallengeRouteParams {
@@ -101,7 +100,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // 3. Get Challenge State & Per-Puzzle Leaderboard
+  // 3. Get Challenge State & Per-Puzzle Leaderboard (restores active attempt draft & server clock)
   fastify.get<{ Params: ChallengeRouteParams }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId",
     {
@@ -160,24 +159,23 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // 4. Submit Challenge Attempt (wrong move or verified solved completion)
+  // 4. Server-Authoritative Move Step (validates move, checks scenario or queries `mozero`, persists draft via HOT update)
   fastify.post<{
     Params: ChallengeRouteParams;
-    Body: SubmitChallengeAttemptRequest;
+    Body: PlayChallengeMoveRequest;
   }>(
-    "/challenges/:discipline/:puzzleId/:edition/:chatId/attempt",
+    "/challenges/:discipline/:puzzleId/:edition/:chatId/move",
     {
       preHandler: [fastify.authenticate],
       schema: {
         params: challengeParamsSchema,
-        body: submitAttemptBodySchema,
+        body: playChallengeMoveBodySchema,
       },
     },
     async (req, reply) => {
       const { discipline, puzzleId, edition, chatId } = req.params;
       const safeEdition = edition || "0";
       const displayName = req.user.firstName;
-      const { solved, time_ms, uci_moves = "", move_times_ms } = req.body;
 
       let club;
       let snapshot;
@@ -224,117 +222,115 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const [current] = await db
-        .select()
-        .from(challengeAttempts)
-        .where(
-          and(
-            eq(challengeAttempts.chatId, chatId),
-            eq(challengeAttempts.discipline, discipline),
-            eq(challengeAttempts.puzzleId, puzzleId),
-            eq(challengeAttempts.edition, safeEdition),
-            eq(challengeAttempts.telegramId, req.user.telegramId)
-          )
-        )
-        .limit(1);
-
-      if (!current) {
-        return reply.code(400).send({
-          error: "Challenge board session was not initialized before submission.",
+      try {
+        return await playChallengeMove({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+          telegramId: req.user.telegramId,
+          displayName,
+          isSuperadmin: req.user.isSuperadmin,
+          uciMove: req.body.uci_move,
+          rawMoveTimeMs: req.body.move_time_ms,
+          snapshot,
+          onNotifyError: (err) => {
+            req.log.error(
+              err,
+              "[ChallengesRoute] Failed to send Telegram solve notification"
+            );
+          },
         });
+      } catch (err) {
+        if (
+          err instanceof InvalidAttemptSolutionError ||
+          err instanceof AttemptSessionError
+        ) {
+          return reply.code(err.statusCode).send({ error: err.message });
+        }
+        throw err;
+      }
+    }
+  );
+
+  // 5. Explicit Attempt Reset (clears active board draft to puzzle_fen and increments `attempts + 1`)
+  fastify.post<{ Params: ChallengeRouteParams }>(
+    "/challenges/:discipline/:puzzleId/:edition/:chatId/reset",
+    {
+      preHandler: [fastify.authenticate],
+      schema: { params: challengeParamsSchema },
+    },
+    async (req, reply) => {
+      const { discipline, puzzleId, edition, chatId } = req.params;
+      const safeEdition = edition || "0";
+      const displayName = req.user.firstName;
+
+      let club;
+      let snapshot;
+      try {
+        club = await requireExistingClub(chatId, {
+          allowSuperadminBypass: req.user.isSuperadmin,
+        });
+        await requireClubParticipantMembership({
+          chatId,
+          telegramId: req.user.telegramId,
+          isSuperadmin: req.user.isSuperadmin,
+          languageCode: req.user.languageCode,
+        });
+        snapshot = await resolveChallengeSnapshot({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+        });
+      } catch (err) {
+        if (
+          err instanceof ClubNotFoundError ||
+          err instanceof PuzzleNotFoundError
+        ) {
+          return reply.code(404).send({ error: err.message });
+        }
+        if (err instanceof ClubMembershipRequiredError) {
+          return reply.code(403).send({ error: err.message });
+        }
+        throw err;
       }
 
-      if (current.status !== "solved" && current.status !== "surrendered") {
-        let verifiedMoves = null;
-        if (solved) {
-          try {
-            verifiedMoves = verifyAndSanitizeSolvedAttempt({
-              discipline,
-              strategy: snapshot.challengeRow.strategy as PuzzleStrategyType,
-              objective: snapshot.challengeRow.objective as PuzzleObjective,
-              userColor: snapshot.challengeRow.userColor as "white" | "black",
-              firstMove: snapshot.challengeRow.firstMove as "bot" | "user",
-              puzzleFen: snapshot.challengeRow.puzzleFen,
-              tacticalSolution: snapshot.challengeRow.tacticalSolution,
-              rawUciMoves: uci_moves,
-              rawMoveTimesMs: move_times_ms,
-            });
-          } catch (err) {
-            if (err instanceof InvalidAttemptSolutionError) {
-              return reply.code(400).send({ error: err.message });
-            }
-            throw err;
-          }
-        }
-
-        const nextAttempts = current.attempts + 1;
-        const nextStatus: ChallengeAttemptStatus = solved
-          ? "solved"
-          : "in_progress";
-        const shouldNotify = solved && !current.notifiedAt;
-        const clampedTimeMs = Math.max(0, Math.round(time_ms));
-
-        await db
-          .update(challengeAttempts)
-          .set({
-            username: displayName,
-            status: nextStatus,
-            solved: solved ? true : current.solved,
-            attempts: nextAttempts,
-            solvedTimeMs: solved ? clampedTimeMs : null,
-            uciMoves: verifiedMoves ? verifiedMoves.uciMoves : current.uciMoves,
-            pgnMoves: verifiedMoves ? verifiedMoves.pgnMoves : current.pgnMoves,
-            moveTimesMs: verifiedMoves
-              ? verifiedMoves.moveTimesMs
-              : current.moveTimesMs,
-            notifiedAt: shouldNotify ? new Date() : current.notifiedAt,
-            updatedAt: new Date(),
-            completedAt: solved ? new Date() : null,
-          })
-          .where(eq(challengeAttempts.id, current.id));
-
-        if (solved) {
-          await telegramBotService.checkAndResumeAutoPause(chatId);
-        }
-
-        if (shouldNotify && verifiedMoves) {
-          void telegramBotService
-            .notifyChallengeSolved({
-              chatId,
-              discipline,
-              puzzleId,
-              edition: safeEdition,
-              attemptId: current.id,
-              username: req.user.firstName,
-              attempts: nextAttempts,
-              timeMs: clampedTimeMs,
-              userMovesCount: verifiedMoves.userMovesCount,
-              hasMoveTimings: verifiedMoves.hasMoveTimings,
-            })
-            .catch((err) => {
-              req.log.error(
-                err,
-                "[ChallengesRoute] Failed to send Telegram solve notification"
-              );
-            });
-        }
-      }
-
-      return buildChallengeStateDTO({
+      const expired = await isChallengeExpiredForViewer({
         chatId,
         discipline,
         puzzleId,
         edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
-        viewerDisplayName: displayName,
-        viewerIsSuperadmin: req.user.isSuperadmin,
-        canInitializeAttempt: false,
-        preloadedSnapshot: snapshot,
+        clubTimezone: club.timezone,
       });
+      if (expired) {
+        return reply.code(410).send({
+          error: "Challenge expired. Only today's challenges can be solved.",
+        });
+      }
+
+      try {
+        return await resetChallengeAttempt({
+          chatId,
+          discipline,
+          puzzleId,
+          edition: safeEdition,
+          telegramId: req.user.telegramId,
+          displayName,
+          isSuperadmin: req.user.isSuperadmin,
+          snapshot,
+        });
+      } catch (err) {
+        if (err instanceof AttemptSessionError) {
+          return reply.code(err.statusCode).send({ error: err.message });
+        }
+        throw err;
+      }
     }
   );
 
-  // 5. Surrender Challenge (locks status='surrendered' and unlocks analysis & viewing others' solutions)
+  // 6. Surrender Challenge (locks status='surrendered' and unlocks analysis & viewing others' solutions)
   fastify.post<{ Params: ChallengeRouteParams }>(
     "/challenges/:discipline/:puzzleId/:edition/:chatId/surrender",
     {
@@ -427,6 +423,9 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           .set({
             status: "surrendered",
             attempts: Math.max(1, current.attempts),
+            uciMoves: "",
+            pgnMoves: "",
+            moveTimesMs: null,
             updatedAt: new Date(),
             completedAt: new Date(),
           })

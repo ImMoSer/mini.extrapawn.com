@@ -235,6 +235,7 @@ const DICT = {
     coach_candidates_title: "Кандидаты движка",
     coach_click_hint: "нажмите для плана на доске",
     coach_no_candidates: "Нет доступных кандидатов для этой позиции.",
+    challenge_resumed_banner: "↺ Попытка продолжена с последнего хода",
   },
   en: {
     nav_cabinet: "Cabinet",
@@ -462,6 +463,7 @@ const DICT = {
     coach_candidates_title: "Engine Candidates",
     coach_click_hint: "tap to preview plan",
     coach_no_candidates: "No candidate moves available for this position.",
+    challenge_resumed_banner: "↺ Attempt resumed from your last move",
   },
   de: {
     nav_cabinet: "Profil",
@@ -690,6 +692,7 @@ const DICT = {
     coach_candidates_title: "Engine-Kandidaten",
     coach_click_hint: "für Plan auf dem Brett tippen",
     coach_no_candidates: "Keine Kandidatenzüge für diese Stellung verfügbar.",
+    challenge_resumed_banner: "↺ Versuch ab dem letzten Zug fortgesetzt",
   },
 } as const;
 

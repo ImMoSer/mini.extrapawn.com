@@ -235,4 +235,55 @@ export function uciLineToSan(startFen: string, uciMoves: string[]): string[] {
   return sanList;
 }
 
+/**
+ * Resolves the single setup move played between `initialFen` and `puzzleFen`
+ * purely from board states (0 dependency on `tactical_solution`), enabling
+ * `lastMove` highlight and Coach root context across all 4 disciplines.
+ */
+export function resolveSetupMoveBetweenFens(
+  initialFen: string,
+  puzzleFen: string
+): AppliedMoveResult | null {
+  if (!initialFen || !puzzleFen) return null;
+  const initParts = initialFen.trim().split(/\s+/);
+  const puzzleParts = puzzleFen.trim().split(/\s+/);
+  if (!initParts[0] || !puzzleParts[0] || initParts[0] === puzzleParts[0]) {
+    return null;
+  }
+
+  let pos: Chess;
+  try {
+    pos = createChessFromFen(initialFen);
+  } catch {
+    return null;
+  }
+
+  const dests = chessgroundDests(pos) as Dests;
+  for (const [orig, targets] of dests.entries()) {
+    for (const dest of targets) {
+      const candidates = requiresPawnPromotion(initialFen, orig, dest)
+        ? [`${orig}${dest}q`, `${orig}${dest}n`, `${orig}${dest}r`, `${orig}${dest}b`]
+        : [`${orig}${dest}`];
+
+      for (const candidateUci of candidates) {
+        try {
+          const applied = applyMoveToFen(initialFen, candidateUci);
+          const nextParts = applied.nextFen.trim().split(/\s+/);
+          if (
+            nextParts[0] === puzzleParts[0] &&
+            nextParts[1] === puzzleParts[1]
+          ) {
+            return applied;
+          }
+        } catch {
+          // Ignore non-matching candidate
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+
 

@@ -1,56 +1,19 @@
+import { and, eq } from "drizzle-orm";
 import { FastifyPluginAsync } from "fastify";
-import type { BotEngineId } from "shared";
+import type { ChallengeDiscipline } from "shared";
+import { db } from "../db/index.js";
+import { challengeAttempts } from "../db/schema.js";
 import { engineClientService } from "../services/engineClient.service.js";
-import {
-  coachUciFenBodySchema,
-  engineBestmoveBodySchema,
-  engineGaviotaBodySchema,
-} from "./schemas.js";
+import { coachUciFenBodySchema } from "./schemas.js";
 
 export const engineRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{
     Body: {
-      engine: BotEngineId;
-      start_fen: string;
-      moves: string[];
-    };
-  }>(
-    "/engine/bestmove",
-    {
-      preHandler: [fastify.authenticate],
-      schema: { body: engineBestmoveBodySchema },
-    },
-    async (req) => {
-      const { engine, start_fen, moves } = req.body;
-      return engineClientService.getBestMove(engine, start_fen, moves || []);
-    }
-  );
-
-  fastify.post<{
-    Body: {
-      fen: string;
-      max_candidates?: number;
-      include_pv?: boolean;
-    };
-  }>(
-    "/engine/gaviota",
-    {
-      preHandler: [fastify.authenticate],
-      schema: { body: engineGaviotaBodySchema },
-    },
-    async (req) => {
-      const { fen, max_candidates = 5, include_pv = false } = req.body;
-      return engineClientService.getGaviotaLines(
-        fen,
-        max_candidates,
-        include_pv
-      );
-    }
-  );
-
-  fastify.post<{
-    Body: {
       user_id?: string;
+      discipline: ChallengeDiscipline;
+      puzzle_id: string;
+      edition: string;
+      chat_id: string;
       start_fen: string;
       moves?: string[];
     };
@@ -60,8 +23,37 @@ export const engineRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: [fastify.authenticate],
       schema: { body: coachUciFenBodySchema },
     },
-    async (req) => {
-      const { start_fen, moves } = req.body;
+    async (req, reply) => {
+      const { discipline, puzzle_id, edition, chat_id, start_fen, moves } =
+        req.body;
+      const safeEdition = edition || "0";
+
+      if (!req.user.isSuperadmin) {
+        const [attempt] = await db
+          .select({ status: challengeAttempts.status })
+          .from(challengeAttempts)
+          .where(
+            and(
+              eq(challengeAttempts.chatId, chat_id),
+              eq(challengeAttempts.discipline, discipline),
+              eq(challengeAttempts.puzzleId, puzzle_id),
+              eq(challengeAttempts.edition, safeEdition),
+              eq(challengeAttempts.telegramId, req.user.telegramId)
+            )
+          )
+          .limit(1);
+
+        if (
+          attempt?.status !== "solved" &&
+          attempt?.status !== "surrendered"
+        ) {
+          return reply.code(403).send({
+            error:
+              "Coach analysis is locked until you solve or surrender the challenge.",
+          });
+        }
+      }
+
       const effectiveUserId =
         req.user.username || req.user.telegramId || "mini_user";
       return engineClientService.analyzeCoachUciFen(

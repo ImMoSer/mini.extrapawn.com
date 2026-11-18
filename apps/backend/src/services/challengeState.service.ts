@@ -14,6 +14,7 @@ import {
 } from "shared";
 import { db } from "../db/index.js";
 import { challengeAttempts, clubChallenges, users } from "../db/schema.js";
+import { MAX_ATTEMPT_ELAPSED_MS } from "./attemptVerifier.service.js";
 import {
   computeViewerNextActive,
   requireExistingClub,
@@ -22,68 +23,6 @@ import {
   PuzzleNotFoundError,
   type NormalizedChallengePuzzle,
 } from "./puzzleClient.service.js";
-
-const MIN_MOVE_TIME_MS = 50;
-const MAX_MOVE_TIME_MS = 10_000;
-
-export interface SanitizedSolvedMoves {
-  uciMoves: string;
-  pgnMoves: string;
-  moveTimesMs: number[] | null;
-  userMovesCount: number;
-  hasMoveTimings: boolean;
-}
-
-/**
- * Enforces domain rules for storing move history:
- * - For `tactics`, move history is NOT stored (`""`, `null`), because all solutions follow the same script.
- * - For non-tactics (`theoretical_endgames`, `practical_chess`, `finishhim`), stores `uci_moves`,
- *   `pgn_moves`, and per-ply `move_times_ms` clamped to `[50..10_000]` ms.
- */
-export function sanitizeSolvedAttemptMoves(params: {
-  discipline: ChallengeDiscipline;
-  rawUciMoves?: string;
-  rawPgnMoves?: string;
-  rawMoveTimesMs?: number[];
-}): SanitizedSolvedMoves {
-  if (params.discipline === "tactics") {
-    return {
-      uciMoves: "",
-      pgnMoves: "",
-      moveTimesMs: null,
-      userMovesCount: 0,
-      hasMoveTimings: false,
-    };
-  }
-
-  const uciList = (params.rawUciMoves ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  const uciMoves = uciList.join(" ");
-  const pgnMoves = (params.rawPgnMoves ?? "").trim();
-  const userMovesCount = Math.ceil(uciList.length / 2);
-
-  let moveTimesMs: number[] | null = null;
-  if (
-    uciList.length > 0 &&
-    Array.isArray(params.rawMoveTimesMs) &&
-    params.rawMoveTimesMs.length === uciList.length
-  ) {
-    moveTimesMs = params.rawMoveTimesMs.map((raw) => {
-      const n = typeof raw === "number" && Number.isFinite(raw) ? raw : 250;
-      return Math.min(MAX_MOVE_TIME_MS, Math.max(MIN_MOVE_TIME_MS, Math.round(n)));
-    });
-  }
-
-  return {
-    uciMoves,
-    pgnMoves,
-    moveTimesMs,
-    userMovesCount,
-    hasMoveTimings: moveTimesMs !== null,
-  };
-}
 
 export async function findChallengeAttemptRef(
   attemptId: number
@@ -244,11 +183,12 @@ export async function buildChallengeStateDTO(params: {
     (r) => r.attempt.telegramId === params.viewerTelegramId
   )?.attempt;
 
-  const canRevealOtherSolutions =
+  const canRevealSolutions =
     viewerAttempt?.status === "solved" ||
     viewerAttempt?.status === "surrendered";
 
   const isTactics = params.discipline === "tactics";
+  const nowMs = Date.now();
 
   const leaderboard: ChallengeParticipantDTO[] = rows.map((r, idx) => {
     const att = r.attempt;
@@ -262,7 +202,13 @@ export async function buildChallengeStateDTO(params: {
     const scoreText = `${scorePoints}/${denom}`;
     const displayName = usr?.firstName || att.username;
 
-    const canSeeMoves = !isTactics && (canRevealOtherSolutions || isViewer);
+    // 1. Viewer's own unfinished attempt: expose draft `uci_moves` + `move_times_ms` + server `elapsed_ms` for resume
+    const isViewerActiveDraft = isViewer && att.status === "in_progress";
+    // 2. Completed solved attempts: expose only for non-tactics and only after viewer finished (or own solved)
+    const isVisibleSolvedHistory =
+      att.solved && !isTactics && (canRevealSolutions || isViewer);
+
+    const canSeeMoves = isViewerActiveDraft || isVisibleSolvedHistory;
     const uciCount = canSeeMoves
       ? att.uciMoves.trim().split(/\s+/).filter(Boolean).length
       : 0;
@@ -273,6 +219,13 @@ export async function buildChallengeStateDTO(params: {
       uciCount > 0
         ? att.moveTimesMs
         : null;
+
+    const activeElapsedMs = isViewerActiveDraft
+      ? Math.min(
+          MAX_ATTEMPT_ELAPSED_MS,
+          Math.max(0, Math.round(nowMs - new Date(att.attemptStartedAt).getTime()))
+        )
+      : null;
 
     return {
       rank: idx + 1,
@@ -286,8 +239,9 @@ export async function buildChallengeStateDTO(params: {
       points,
       score_text: scoreText,
       solved_time_ms: att.solvedTimeMs ?? null,
+      elapsed_ms: activeElapsedMs,
       uci_moves: canSeeMoves ? att.uciMoves : "",
-      pgn_moves: canSeeMoves ? att.pgnMoves : "",
+      pgn_moves: isVisibleSolvedHistory ? att.pgnMoves : "",
       move_times_ms: validTimings,
       updated_at: att.updatedAt.toISOString(),
       completed_at: att.completedAt ? att.completedAt.toISOString() : null,
@@ -322,11 +276,12 @@ export async function buildChallengeStateDTO(params: {
     first_move: challengeRow.firstMove as "bot" | "user",
     strategy: challengeRow.strategy as PuzzleStrategyType,
     objective: challengeRow.objective as PuzzleObjective,
-    tactical_solution: challengeRow.tacticalSolution,
+    // Anti-Cheat: never expose tactical_solution until viewer solved or surrendered
+    tactical_solution: canRevealSolutions ? challengeRow.tacticalSolution : "",
     domain: challengeRow.domain,
     category: challengeRow.category,
-    tactical: normalized?.tactical,
-    endgame: normalized?.endgame,
+    tactical: canRevealSolutions ? normalized?.tactical : undefined,
+    endgame: canRevealSolutions ? normalized?.endgame : undefined,
     my_entry: myEntry,
     leaderboard,
     remaining_active_count: nextActiveInfo.remainingActiveCount,

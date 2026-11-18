@@ -10,6 +10,7 @@ import { challengesRoutes } from "./routes/challenges.routes.js";
 import { clubsRoutes } from "./routes/clubs.routes.js";
 import { engineRoutes } from "./routes/engine.routes.js";
 import { superadminRoutes } from "./routes/superadmin.routes.js";
+import { startPostgresDoctorLoop } from "./services/postgresDoctor.service.js";
 
 const server = Fastify({
   bodyLimit: 256 * 1024, // 256 KB strict request payload cap
@@ -77,6 +78,7 @@ async function bootstrap() {
   );
 
   startTelegramBotBackgroundLoops();
+  startPostgresDoctorLoop();
 }
 
 bootstrap().catch((err) => {

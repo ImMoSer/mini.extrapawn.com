@@ -229,9 +229,16 @@ watch(
       wasm.stopAnalysis();
     }
 
-    if (mode === "coach") {
+    if (mode === "coach" && store.challenge) {
       const ctx = store.coachPayloadContext;
-      void coach.analyzePosition(ctx.startFen, ctx.moves);
+      void coach.analyzePosition({
+        discipline: store.challenge.discipline,
+        puzzleId: store.challenge.puzzle_id,
+        edition: store.challenge.edition,
+        chatId: store.challenge.chat_id,
+        startFen: ctx.startFen,
+        moves: ctx.moves,
+      });
     }
   }
 );
@@ -349,6 +356,14 @@ onUnmounted(() => {
       @next-step="store.stepForward()"
       @last-step="store.goToLastStep()"
     />
+
+    <!-- Resumed Active Attempt Notice (below toolbar so board never shifts vertically) -->
+    <div
+      v-if="store.feedbackBanner?.messageKey === 'challenge_resumed_banner'"
+      class="rounded-md border border-brand/30 bg-elevated px-3 py-1.5 text-center text-xs font-semibold text-brand"
+    >
+      {{ t("challenge_resumed_banner") }}
+    </div>
 
     <!-- Stockfish MultiPV = 3 Panel -->
     <StockfishAnalysisCard

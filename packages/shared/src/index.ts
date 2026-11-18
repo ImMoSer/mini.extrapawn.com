@@ -678,6 +678,7 @@ export interface ChallengeParticipantDTO {
   points: number;
   score_text: string;
   solved_time_ms: number | null;
+  elapsed_ms: number | null;
   uci_moves: string;
   pgn_moves: string;
   move_times_ms: number[] | null;
@@ -717,12 +718,21 @@ export interface ChallengeStateDTO {
   next_active_challenge: NextActiveChallengeRefDTO | null;
 }
 
-export interface SubmitChallengeAttemptRequest {
-  solved: boolean;
-  time_ms: number;
-  uci_moves?: string;
-  pgn_moves?: string;
-  move_times_ms?: number[];
+export type ChallengeMoveOutcome =
+  | "continue"
+  | "wrong_move"
+  | "failed_attempt"
+  | "solved";
+
+export interface PlayChallengeMoveRequest {
+  uci_move: string;
+  move_time_ms?: number;
+}
+
+export interface PlayChallengeMoveResponseDTO {
+  outcome: ChallengeMoveOutcome;
+  bot_move_uci: string | null;
+  state: ChallengeStateDTO;
 }
 
 export interface ChallengeAttemptRefDTO {
@@ -797,11 +807,43 @@ export interface UpdateClubSettingsRequest {
   filter_objective?: string;
 }
 
+export type PostgresHealthStatus = "healthy" | "warning" | "critical";
+
+export interface PostgresTableHealthDTO {
+  qualified_name: string;
+  live_tuples: number;
+  dead_tuples: number;
+  dead_ratio_pct: number;
+  total_size_bytes: number;
+  last_vacuum_at: string | null;
+}
+
+export interface PostgresDoctorReportDTO {
+  status: PostgresHealthStatus;
+  checked_at: string;
+  db_size_bytes: number;
+  cache_hit_ratio_pct: number;
+  active_connections: number;
+  idle_in_tx_count: number;
+  longest_query_sec: number;
+  total_live_tuples: number;
+  total_dead_tuples: number;
+  last_backup_at: string | null;
+  last_backup_size_bytes: number | null;
+  last_backup_file: string | null;
+  backup_age_hours: number | null;
+  last_vacuum_at: string | null;
+  auto_healed_tables: string[];
+  issues: string[];
+  top_tables: PostgresTableHealthDTO[];
+}
+
 export interface SuperAdminOverviewDTO {
   total_users: number;
   total_clubs: number;
   total_attempts: number;
   total_solved: number;
+  postgres_health: PostgresDoctorReportDTO;
   clubs: ClubSummaryDTO[];
   promos: PromoCampaignDTO[];
 }

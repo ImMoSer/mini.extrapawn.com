@@ -1,5 +1,6 @@
 import type { Key } from "@lichess-org/chessground/types";
 import { computed, ref } from "vue";
+import type { ChallengeDiscipline } from "shared";
 import { apiRequest } from "@/shared/api/httpClient";
 import type {
   CoachExplanation,
@@ -219,11 +220,15 @@ export function useCoachAnalysis() {
     return shapes;
   });
 
-  async function analyzePosition(
-    startFen: string,
-    moves: string[]
-  ): Promise<void> {
-    const key = `${startFen}|${moves.join(" ")}`;
+  async function analyzePosition(params: {
+    discipline: ChallengeDiscipline;
+    puzzleId: string;
+    edition: string;
+    chatId: string;
+    startFen: string;
+    moves: string[];
+  }): Promise<void> {
+    const key = `${params.discipline}|${params.puzzleId}|${params.edition}|${params.chatId}|${params.startFen}|${params.moves.join(" ")}`;
     const cached = cache.get(key);
     if (cached) {
       error.value = null;
@@ -241,8 +246,12 @@ export function useCoachAnalysis() {
       const data = await apiRequest<CoachExplanation>("/coach-engine/uci_fen", {
         method: "POST",
         body: JSON.stringify({
-          start_fen: startFen,
-          moves,
+          discipline: params.discipline,
+          puzzle_id: params.puzzleId,
+          edition: params.edition,
+          chat_id: params.chatId,
+          start_fen: params.startFen,
+          moves: params.moves,
         }),
       });
 

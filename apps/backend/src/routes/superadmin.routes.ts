@@ -19,6 +19,10 @@ import {
 } from "../db/schema.js";
 import { mapClubRowToSummaryDTO } from "../services/clubMapper.js";
 import {
+  collectPostgresDoctorReport,
+  runManualPostgresVacuum,
+} from "../services/postgresDoctor.service.js";
+import {
   chatIdParamsSchema,
   superadminBlockBodySchema,
   superadminPromoBodySchema,
@@ -80,16 +84,30 @@ export const superadminRoutes: FastifyPluginAsync = async (fastify) => {
         created_at: p.createdAt.toISOString(),
       }));
 
+      const postgresHealth = await collectPostgresDoctorReport({
+        allowAutoHeal: false,
+      });
+
       const overview: SuperAdminOverviewDTO = {
         total_users: Number(usersCount?.value ?? 0),
         total_clubs: Number(clubsCount?.value ?? 0),
         total_attempts: Number(attemptsCount?.value ?? 0),
         total_solved: Number(solvedCount?.value ?? 0),
+        postgres_health: postgresHealth,
         clubs: clubDtos,
         promos: promoDtos,
       };
 
       return overview;
+    }
+  );
+
+  // Trigger manual online VACUUM (ANALYZE) via Postgres-Doctor
+  fastify.post(
+    "/superadmin/postgres-doctor/vacuum",
+    { preHandler: [fastify.requireSuperadmin] },
+    async () => {
+      return await runManualPostgresVacuum();
     }
   );
 

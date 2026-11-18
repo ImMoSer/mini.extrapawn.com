@@ -48,21 +48,23 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Внутренний генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
-│   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и tableservice:5000
+│   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и stockfish_server:5000 (Coach)
 │   │       │   ├── clubMembership.service.ts # Проверка членства участника в супергруппе (getChatMember + TTL-кэш)
-│   │       │   ├── attemptVerifier.service.ts# In-memory chessops валидация ходов решения и генерация канонического SAN
-│   │       │   ├── challengeQueries.service.ts # Сборка ChallengeStateDTO, анти-спойлер и списки задач
-│   │       │   ├── challengeState.service.ts # Приём попыток, санитизация таймингов и сдача
+│   │       │   ├── attemptVerifier.service.ts# Чистый chessops-движок валидации ходов, сценариев и правил ФИДЕ
+│   │       │   ├── challengePlay.service.ts  # Server-Authoritative шаг попытки (/move, /reset), мьютекс, HOT-апдейт черновика
+│   │       │   ├── challengeQueries.service.ts # Сборка списков задач GO, клуба и экспирации
+│   │       │   ├── challengeState.service.ts # Сборка ChallengeStateDTO, анти-спойлер (скрытие tactical_solution до финала) и резюм попытки
+│   │       │   ├── postgresDoctor.service.ts # Postgres-Doctor: метрики БД, авто-VACUUM раздутых таблиц и Telegram-алерты BOSSу
 │   │       │   ├── clubLeaderboard.service.ts# Межклубный лидерборд за 7 дней
 │   │       │   ├── clubSettings.service.ts   # Валидация интервалов расписания и ошибок роутов клубов
 │   │       │   └── clubMapper.ts             # Маппинг строки клуба в ClubSummaryDTO
 │   │       └── routes/
 │   │           ├── schemas.ts                # Runtime JSON Schema валидация всех входящих запросов
 │   │           ├── cabinet.routes.ts         # GET /api/cabinet, PATCH /api/cabinet/language
-│   │           ├── challenges.routes.ts      # Доска, лидерборд задачи/клуба, attempt, surrender, attempt-ref
+│   │           ├── challenges.routes.ts      # Доска, лидерборд задачи/клуба, серверные /move, /reset, /surrender, attempt-ref
 │   │           ├── clubs.routes.ts           # Межклубный чемпионат /api/clubs/leaderboard, настройки клуба
-│   │           ├── engine.routes.ts          # Прокси ходов бота (/api/engine/bestmove) и таблиц (/api/engine/gaviota)
-│   │           └── superadmin.routes.ts      # Управление клубами, модерация заявок и промо (/api/superadmin/*)
+│   │           ├── engine.routes.ts          # Защищённый прокси Coach (/api/coach-engine/uci_fen — строго после solved | surrendered)
+│   │           └── superadmin.routes.ts      # Управление клубами, модерация заявок, Postgres-Doctor и промо (/api/superadmin/*)
 │   └── frontend/                             # Vue 3 + Vite + Tailwind CSS v4 + Feature-Sliced Design
 │       ├── Dockerfile                        # Мультистейдж сборка (node:24-alpine -> nginx:alpine)
 │       ├── nginx.conf                        # Раздача SPA + проксирование /api/* на mini-backend:3000
@@ -76,7 +78,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │           │   ├── records/                  # PuzzleRecordsPage.vue (/records/...)
 │           │   ├── club-records/             # ClubRecordsPage.vue (/challenge/records/:chatId)
 │           │   ├── club-settings/            # ClubSettingsPage.vue + ui/* (/club-settings/:chatId)
-│           │   └── super-admin/              # SuperAdminPage.vue (/super-admin)
+│           │   └── super-admin/              # SuperAdminPage.vue + ui/(ClubsSection, PostgresDoctorCard, PromoSection) (/super-admin)
 │           ├── features/
 │           │   └── challenge-play/           # challengeSession.store.ts, challengeEngineFlow.ts, useChallengeTimeline.ts, ui/*
 │           ├── widgets/
@@ -126,7 +128,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 4. **`tele_app.club_challenges`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition)`):
    - Опубликованные в клубе челленджи — **самодостаточный неизменяемый снапшот (`Snapshot-First`)**: хранит `initial_fen`, `puzzle_fen`, `user_color`, `first_move`, `strategy`, `objective`, `bot_engine` (`DEFAULT 'mozero'`), `tactical_solution`, `domain`, `category`, `tg_message_id`, `published_at`. При открытии доски, отправке попыток, сдаче и просмотре реплеев (`buildChallengeStateDTO`) состояние собирается напрямую из этого снапшота в PostgreSQL (`0` HTTP-запросов к `puzzle-engine`), что гарантирует 100% живучесть ленты `GO` и кнопок в чате при любых обновлениях CSV-пулов в `puzzle_service`. Также таблица используется для исключения повторов задач в клубе и для отправки реплаев на `tg_message_id`.
 5. **`tele_app.challenge_attempts`** (`id serial PRIMARY KEY`, `UNIQUE (chat_id, discipline, puzzle_id, edition, telegram_id)`):
-   - Попытки игроков в разрезе конкретного чата (`chat_id`): `username`, `status` (`'in_progress' | 'solved' | 'surrendered'`), `solved`, `attempts`, `solved_time_ms`, `uci_moves`, `pgn_moves`, `move_times_ms` (`integer[]` — длительности полуходов в мс; для `tactics` история ходов и тайминги в БД не пишутся), `notified_at`, `updated_at`, `completed_at`.
+   - Попытки игроков в разрезе конкретного чата (`chat_id`): `username`, `status` (`'in_progress' | 'solved' | 'surrendered'`), `solved`, `attempts`, `solved_time_ms`, серверный секундомер текущей попытки `attempt_started_at`, `uci_moves`, `pgn_moves`, `move_times_ms` (`integer[]` — длительности полуходов в мс; во время активной игры `status = 'in_progress'` черновик ходов сохраняется на каждом полуходе через PostgreSQL HOT-апдейт с `fillfactor = 80` без изменения индексированных колонок; при завершении `tactics` история ходов очищается), `notified_at`, `updated_at`, `completed_at`.
 6. **`tele_app.promo_campaigns`** (`id serial PRIMARY KEY`):
    - Промо-кампании BOSSа для рассылки по темам активных клубов.
 
@@ -165,9 +167,14 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 - При успешной технической проверке:
   - Если бота подключил внешний владелец/админ, клуб регистрируется со статусом **`pending` (`is_active = FALSE`, скрыт из `/clubs` и `GO`)**, синхронизирует `tele_app.club_admins`, отправляет уведомление об ожидании в топик и карточку заявки с кнопками `[ ✅ Одобрить | 🚫 Отклонить ]` в ЛС `SuperAdmin` (`5106981885`) и в `/super-admin`. После нажатия `✅ Одобрить` статус меняется на `active`, публикуются приветствие и первый челлендж; при `🚫 Отклонить` бот вежливо покидает чат и очищает заявку из БД.
   - Если бота подключил сам `SuperAdmin` (`5106981885`), клуб активируется мгновенно (`status = 'active'`).
-- **Защита честной игры и целостности БД (`SEC-01`, `SEC-04`):**
+- **Защита честной игры и целостности БД (`SEC-01`, `SEC-04`, Server-Authoritative Playout & Anti-Cheat):**
   - HTTP-роуты никогда не создают фейковые клубы или челленджи (принимаются только реально опубликованные ботом записи в активных клубах).
-  - Сдача попыток (`POST /attempt`, `POST /surrender`) проверяет реальное членство игрока в супергруппе (`getChatMember` с TTL-кэшем `15 мин`), инициализацию сессии доски (`GET /challenges/...`) и прогоняет цепочку ходов `uci_moves` через `chessops` в памяти Node.js (`0` вызовов движков, `< 0.3 мс`, серверная генерация канонического `SAN`).
+  - **Пошаговое серверное ведение попытки (`POST .../move` и `POST .../reset`):**
+    - Клиент никогда не получает `tactical_solution` до завершения задачи (`solved | surrendered`) и не может подделать финальный массив ходов или секундомер (`solved_time_ms` считается на сервере от `attempt_started_at`).
+    - Каждый ход активной партии валидируется через `chessops` на бэкенде относительно уже сохранённой в PostgreSQL цепочки `uci_moves` (с in-memory мьютексом на попытку и optimistic lock в БД). В спарринге сервер сам запрашивает ответ `mozero` в `engine-hub` и записывает оба полухода в `tele_app.challenge_attempts` через сверхбыстрый HOT-апдейт.
+    - **Защита от читерского релога из тупика:** при закрытии и повторном открытии Mini App (или редеплое сервера) незавершённая попытка автоматически восстанавливается на том же ходе, позиции и серверном таймере; сбросить позицию на старт можно только кнопкой `↺ Сначала / Reset` (`POST .../reset`), которая честно инкрементирует `attempts + 1`.
+    - Серверный ИИ-тренер (`POST /api/coach-engine/uci_fen`) жёстко проверяет в БД, что пользователь уже завершил челлендж (`status IN ('solved', 'surrendered')`), блокируя запросы во время активного решения (`403`).
+  - **Встроенный `Postgres-Doctor` (`postgresDoctor.service.ts`):** ежечасно проверяет здоровье `chess_db` (`dead_tuples` bloat, `idle in transaction`, размер БД и свежесть бэкапа в `public.postgres_doctor_heartbeat`), автоматически выполняет онлайн `VACUUM (ANALYZE)` при раздувании таблиц, отображает живую панель в `/super-admin` (с ручной кнопкой `🧹 VACUUM`) и присылает Telegram-алерт BOSSу (`5106981885`) при отклонениях.
 - **Инциденты (удаление бота или лишение прав) и полное удаление клуба:**
   - Если в подключённой супергруппе бота исключают/блокируют (`left` / `kicked`) или лишают обязательных прав (`can_manage_topics` / `can_delete_messages`), данные клуба **не удаляются**: клуб переводится в `bot_removed` или `paused`, а BOSSу (`5106981885`) мгновенно отправляется уведомление в ЛС Telegram с деталями инцидента, автором действия и кнопкой перехода в `/super-admin`.
   - Полное удаление клуба и его данных из PostgreSQL доступно **исключительно `SuperAdmin` (`5106981885`)**.

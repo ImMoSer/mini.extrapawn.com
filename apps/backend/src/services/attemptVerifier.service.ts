@@ -4,21 +4,16 @@ import { makeSan } from "chessops/san";
 import { parseUci } from "chessops/util";
 import type {
   ChallengeDiscipline,
+  ChallengeMoveOutcome,
   PuzzleObjective,
   PuzzleStrategyType,
 } from "shared";
 
-const MIN_MOVE_TIME_MS = 50;
-const MAX_MOVE_TIME_MS = 10_000;
-const MAX_SPARRING_PLIES = 400;
-
-export interface VerifiedSolvedAttemptMoves {
-  uciMoves: string;
-  pgnMoves: string;
-  moveTimesMs: number[] | null;
-  userMovesCount: number;
-  hasMoveTimings: boolean;
-}
+export const MIN_MOVE_TIME_MS = 50;
+export const MAX_MOVE_TIME_MS = 10_000;
+export const BOT_NORMALIZED_MOVE_TIME_MS = 250;
+export const MAX_SPARRING_PLIES = 400;
+export const MAX_ATTEMPT_ELAPSED_MS = 3_600_000; // 60 min cap matching puzzle_service
 
 export class InvalidAttemptSolutionError extends Error {
   public readonly statusCode = 400;
@@ -28,6 +23,38 @@ export class InvalidAttemptSolutionError extends Error {
     this.name = "InvalidAttemptSolutionError";
   }
 }
+
+export interface SolvedMovesPayload {
+  uciMoves: string;
+  pgnMoves: string;
+  moveTimesMs: number[] | null;
+  userMovesCount: number;
+  hasMoveTimings: boolean;
+}
+
+export interface EvaluatedStepTerminalOrContinue {
+  kind: "resolved";
+  outcome: ChallengeMoveOutcome;
+  botMoveUci: string | null;
+  nextDraftUciMoves: string;
+  nextDraftMoveTimesMs: number[] | null;
+  solvedPayload: SolvedMovesPayload | null;
+}
+
+export interface PendingSparringReplyContext {
+  kind: "needs_sparring_reply";
+  pos: Chess;
+  discipline: ChallengeDiscipline;
+  objective: PuzzleObjective;
+  uciList: string[];
+  sanList: string[];
+  fenHistory: string[];
+  timesList: number[];
+}
+
+export type InitialMoveEvaluation =
+  | EvaluatedStepTerminalOrContinue
+  | PendingSparringReplyContext;
 
 function normalizeFenFourFields(fen: string): string {
   return fen.trim().split(/\s+/).slice(0, 4).join(" ");
@@ -48,6 +75,16 @@ function hasThreefoldRepetition(
     }
   }
   return false;
+}
+
+function isFideDrawPosition(pos: Chess, fenHistory: readonly string[]): boolean {
+  const latestFen = fenHistory[fenHistory.length - 1] ?? "";
+  return (
+    pos.isStalemate() ||
+    pos.isInsufficientMaterial() ||
+    pos.halfmoves >= 100 ||
+    hasThreefoldRepetition(fenHistory, latestFen)
+  );
 }
 
 function createPositionFromFen(fen: string): Chess {
@@ -91,104 +128,21 @@ function extractExpectedScenarioMoves(
   return tokens;
 }
 
-function sanitizeTimings(
-  plyCount: number,
-  rawMoveTimesMs?: number[]
-): number[] | null {
-  if (
-    plyCount <= 0 ||
-    !Array.isArray(rawMoveTimesMs) ||
-    rawMoveTimesMs.length !== plyCount
-  ) {
-    return null;
-  }
-  return rawMoveTimesMs.map((raw) => {
-    const n = typeof raw === "number" && Number.isFinite(raw) ? raw : 250;
-    return Math.min(MAX_MOVE_TIME_MS, Math.max(MIN_MOVE_TIME_MS, Math.round(n)));
-  });
+export function clampPlyMoveTimeMs(rawMoveTimeMs?: number): number {
+  const n =
+    typeof rawMoveTimeMs === "number" && Number.isFinite(rawMoveTimeMs)
+      ? rawMoveTimeMs
+      : BOT_NORMALIZED_MOVE_TIME_MS;
+  return Math.min(MAX_MOVE_TIME_MS, Math.max(MIN_MOVE_TIME_MS, Math.round(n)));
 }
 
-/**
- * Verifies a solved challenge submission purely in-memory via `chessops` (~0.2 ms, 0 engine calls):
- * 1. Ensures every submitted UCI move is strictly legal from `puzzleFen`.
- * 2. For `tactics` (`scenarioOnly`): verifies the move sequence matches `tacticalSolution` (or delivers legal checkmate),
- *    returning empty strings for DB persistence to preserve anti-spoiler rules.
- * 3. For `playOutOnly` / `scenarioPlus`: verifies the final board state meets `objective` (`win` -> checkmate by user;
- *    `hold_draw` -> FIDE draw or checkmate by user) and computes clean server-generated SAN (`pgnMoves`).
- */
-export function verifyAndSanitizeSolvedAttempt(params: {
-  discipline: ChallengeDiscipline;
-  strategy: PuzzleStrategyType;
-  objective: PuzzleObjective;
-  userColor: "white" | "black";
-  firstMove: "bot" | "user";
-  puzzleFen: string;
-  tacticalSolution: string;
-  rawUciMoves?: string;
-  rawMoveTimesMs?: number[];
-}): VerifiedSolvedAttemptMoves {
-  const uciList = (params.rawUciMoves ?? "")
-    .trim()
-    .split(/\s+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (uciList.length === 0 || uciList.length > MAX_SPARRING_PLIES) {
-    throw new InvalidAttemptSolutionError(
-      "Solved attempt requires a valid non-empty UCI move sequence."
-    );
-  }
-
-  const pos = createPositionFromFen(params.puzzleFen);
-  const expectedScenario = extractExpectedScenarioMoves(
-    params.firstMove,
-    params.tacticalSolution
-  );
-
-  if (params.discipline === "tactics" || params.strategy === "scenarioOnly") {
-    if (expectedScenario.length === 0) {
-      throw new InvalidAttemptSolutionError(
-        "Tactical challenge is missing expected solution moves."
-      );
-    }
-
-    let scenarioSolved = false;
-    for (let i = 0; i < uciList.length; i += 1) {
-      const uci = uciList[i] ?? "";
-      const parsed = parseUci(uci);
-      if (!parsed || !("from" in parsed) || !pos.isLegal(parsed)) {
-        throw new InvalidAttemptSolutionError(
-          `Illegal tactical move '${uci}' at ply ${i + 1}.`
-        );
-      }
-
-      const isUserTurn = i % 2 === 0;
-      const expectedUci = expectedScenario[i];
-      pos.play(parsed);
-
-      if (isUserTurn && pos.isCheckmate()) {
-        scenarioSolved = true;
-        break;
-      }
-
-      if (!expectedUci || !matchesExpectedScenarioUci(uci, expectedUci)) {
-        throw new InvalidAttemptSolutionError(
-          `Move '${uci}' at ply ${i + 1} does not match tactical solution.`
-        );
-      }
-
-      if (i + 1 >= expectedScenario.length) {
-        scenarioSolved = true;
-        break;
-      }
-    }
-
-    if (!scenarioSolved) {
-      throw new InvalidAttemptSolutionError(
-        "Tactical solution sequence is incomplete."
-      );
-    }
-
+function buildSolvedPayload(
+  discipline: ChallengeDiscipline,
+  uciList: readonly string[],
+  sanList: readonly string[],
+  timesList: readonly number[]
+): SolvedMovesPayload {
+  if (discipline === "tactics") {
     return {
       uciMoves: "",
       pgnMoves: "",
@@ -197,77 +151,346 @@ export function verifyAndSanitizeSolvedAttempt(params: {
       hasMoveTimings: false,
     };
   }
+  const validTimings =
+    timesList.length === uciList.length && uciList.length > 0
+      ? [...timesList]
+      : null;
 
-  const normalizedUci: string[] = [];
-  const sanList: string[] = [];
-  const fenHistory: string[] = [makeFen(pos.toSetup())];
-  let earlyScenarioMate = false;
+  return {
+    uciMoves: uciList.join(" "),
+    pgnMoves: sanList.join(" "),
+    moveTimesMs: validTimings,
+    userMovesCount: Math.ceil(uciList.length / 2),
+    hasMoveTimings: validTimings !== null,
+  };
+}
 
-  for (let i = 0; i < uciList.length; i += 1) {
-    const uci = uciList[i] ?? "";
-    const parsed = parseUci(uci);
-    if (!parsed || !("from" in parsed) || !pos.isLegal(parsed)) {
-      throw new InvalidAttemptSolutionError(
-        `Illegal move '${uci}' at ply ${i + 1}.`
-      );
-    }
+/**
+ * Pure server-side `chessops` step evaluator (~0.1 ms, 0 network calls):
+ * Replays existing persisted attempt moves from `puzzleFen`, validates the incoming `userUciMove`,
+ * checks hidden `tacticalSolution` when in scenario phase, and either resolves immediately
+ * (`wrong_move`, `solved`, `failed_attempt`, `continue` with scripted reply) or requests a sparring bot reply.
+ */
+export function evaluateUserChallengeMove(params: {
+  discipline: ChallengeDiscipline;
+  strategy: PuzzleStrategyType;
+  objective: PuzzleObjective;
+  userColor: "white" | "black";
+  firstMove: "bot" | "user";
+  puzzleFen: string;
+  tacticalSolution: string;
+  prevUciMoves: string;
+  prevMoveTimesMs: readonly number[] | null;
+  userUciMove: string;
+  rawUserMoveTimeMs?: number;
+}): InitialMoveEvaluation {
+  const pos = createPositionFromFen(params.puzzleFen);
+  const prevTokens = params.prevUciMoves
+    .trim()
+    .split(/\s+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 
-    const san = makeSan(pos, parsed);
-    pos.play(parsed);
-    const nextFen = makeFen(pos.toSetup());
-
-    normalizedUci.push(uci);
-    sanList.push(san);
-    fenHistory.push(nextFen);
-
-    if (
-      params.strategy === "scenarioPlus" &&
-      i < expectedScenario.length &&
-      !earlyScenarioMate
-    ) {
-      const isUserTurn = i % 2 === 0;
-      if (isUserTurn && pos.isCheckmate()) {
-        earlyScenarioMate = true;
-      } else {
-        const expectedUci = expectedScenario[i];
-        if (expectedUci && !matchesExpectedScenarioUci(uci, expectedUci)) {
-          throw new InvalidAttemptSolutionError(
-            `Scenario prefix move '${uci}' at ply ${i + 1} does not match.`
-          );
-        }
-      }
-    }
-  }
-
-  const lastFen = fenHistory[fenHistory.length - 1] ?? params.puzzleFen;
-  const isUserCheckmate = pos.isCheckmate() && pos.turn !== params.userColor;
-  const isFideDraw =
-    pos.isStalemate() ||
-    pos.isInsufficientMaterial() ||
-    pos.halfmoves >= 100 ||
-    hasThreefoldRepetition(fenHistory, lastFen);
-
-  const goalAchieved =
-    params.objective === "hold_draw"
-      ? isFideDraw || isUserCheckmate
-      : isUserCheckmate;
-
-  if (!goalAchieved) {
+  if (prevTokens.length >= MAX_SPARRING_PLIES) {
     throw new InvalidAttemptSolutionError(
-      `Final board position does not satisfy challenge objective '${params.objective}'.`
+      "Maximum sparring ply limit reached for this attempt."
     );
   }
 
-  const moveTimesMs = sanitizeTimings(
-    normalizedUci.length,
-    params.rawMoveTimesMs
+  const uciList: string[] = [];
+  const sanList: string[] = [];
+  const fenHistory: string[] = [makeFen(pos.toSetup())];
+  const timesList: number[] = [];
+
+  for (let i = 0; i < prevTokens.length; i += 1) {
+    const prevUci = prevTokens[i] ?? "";
+    const parsedPrev = parseUci(prevUci);
+    if (!parsedPrev || !("from" in parsedPrev) || !pos.isLegal(parsedPrev)) {
+      throw new InvalidAttemptSolutionError(
+        `Corrupt persisted move '${prevUci}' at ply ${i + 1}.`
+      );
+    }
+    const san = makeSan(pos, parsedPrev);
+    pos.play(parsedPrev);
+    uciList.push(prevUci);
+    sanList.push(san);
+    fenHistory.push(makeFen(pos.toSetup()));
+    timesList.push(clampPlyMoveTimeMs(params.prevMoveTimesMs?.[i]));
+  }
+
+  if (pos.turn !== params.userColor) {
+    throw new InvalidAttemptSolutionError(
+      "Active attempt position is not on the player's turn."
+    );
+  }
+
+  const userUci = params.userUciMove.trim().toLowerCase();
+  const parsedUser = parseUci(userUci);
+  if (!parsedUser || !("from" in parsedUser) || !pos.isLegal(parsedUser)) {
+    throw new InvalidAttemptSolutionError(
+      `Illegal move '${userUci}' on current challenge board.`
+    );
+  }
+
+  const expectedScenario = extractExpectedScenarioMoves(
+    params.firstMove,
+    params.tacticalSolution
   );
+  const isScenarioOnly =
+    params.discipline === "tactics" || params.strategy === "scenarioOnly";
+  const inScenarioPhase =
+    isScenarioOnly ||
+    (params.strategy === "scenarioPlus" &&
+      uciList.length < expectedScenario.length);
+
+  if (isScenarioOnly && expectedScenario.length === 0) {
+    throw new InvalidAttemptSolutionError(
+      "Tactical challenge is missing expected solution moves."
+    );
+  }
+
+  const expectedUserUci = expectedScenario[uciList.length];
+  const userSan = makeSan(pos, parsedUser);
+  pos.play(parsedUser);
+  const afterUserFen = makeFen(pos.toSetup());
+
+  if (inScenarioPhase) {
+    const isScenarioMatch =
+      pos.isCheckmate() ||
+      (expectedUserUci !== undefined &&
+        matchesExpectedScenarioUci(userUci, expectedUserUci));
+
+    if (!isScenarioMatch) {
+      return {
+        kind: "resolved",
+        outcome: "wrong_move",
+        botMoveUci: null,
+        nextDraftUciMoves: "",
+        nextDraftMoveTimesMs: null,
+        solvedPayload: null,
+      };
+    }
+  }
+
+  uciList.push(userUci);
+  sanList.push(userSan);
+  fenHistory.push(afterUserFen);
+  timesList.push(clampPlyMoveTimeMs(params.rawUserMoveTimeMs));
+
+  if (pos.isCheckmate()) {
+    return {
+      kind: "resolved",
+      outcome: "solved",
+      botMoveUci: null,
+      nextDraftUciMoves: "",
+      nextDraftMoveTimesMs: null,
+      solvedPayload: buildSolvedPayload(
+        params.discipline,
+        uciList,
+        sanList,
+        timesList
+      ),
+    };
+  }
+
+  if (isFideDrawPosition(pos, fenHistory)) {
+    if (params.objective === "hold_draw") {
+      return {
+        kind: "resolved",
+        outcome: "solved",
+        botMoveUci: null,
+        nextDraftUciMoves: "",
+        nextDraftMoveTimesMs: null,
+        solvedPayload: buildSolvedPayload(
+          params.discipline,
+          uciList,
+          sanList,
+          timesList
+        ),
+      };
+    }
+    return {
+      kind: "resolved",
+      outcome: "failed_attempt",
+      botMoveUci: null,
+      nextDraftUciMoves: "",
+      nextDraftMoveTimesMs: null,
+      solvedPayload: null,
+    };
+  }
+
+  if (isScenarioOnly && uciList.length >= expectedScenario.length) {
+    return {
+      kind: "resolved",
+      outcome: "solved",
+      botMoveUci: null,
+      nextDraftUciMoves: "",
+      nextDraftMoveTimesMs: null,
+      solvedPayload: buildSolvedPayload(
+        params.discipline,
+        uciList,
+        sanList,
+        timesList
+      ),
+    };
+  }
+
+  const scriptedBotUci = inScenarioPhase
+    ? expectedScenario[uciList.length]
+    : undefined;
+
+  if (scriptedBotUci) {
+    const parsedBot = parseUci(scriptedBotUci);
+    if (!parsedBot || !("from" in parsedBot) || !pos.isLegal(parsedBot)) {
+      throw new InvalidAttemptSolutionError(
+        `Illegal scripted reply '${scriptedBotUci}' in puzzle snapshot.`
+      );
+    }
+    const botSan = makeSan(pos, parsedBot);
+    pos.play(parsedBot);
+    uciList.push(scriptedBotUci);
+    sanList.push(botSan);
+    fenHistory.push(makeFen(pos.toSetup()));
+    timesList.push(BOT_NORMALIZED_MOVE_TIME_MS);
+
+    if (pos.isCheckmate()) {
+      return {
+        kind: "resolved",
+        outcome: "failed_attempt",
+        botMoveUci: scriptedBotUci,
+        nextDraftUciMoves: "",
+        nextDraftMoveTimesMs: null,
+        solvedPayload: null,
+      };
+    }
+
+    if (isFideDrawPosition(pos, fenHistory)) {
+      if (params.objective === "hold_draw") {
+        return {
+          kind: "resolved",
+          outcome: "solved",
+          botMoveUci: scriptedBotUci,
+          nextDraftUciMoves: "",
+          nextDraftMoveTimesMs: null,
+          solvedPayload: buildSolvedPayload(
+            params.discipline,
+            uciList,
+            sanList,
+            timesList
+          ),
+        };
+      }
+      return {
+        kind: "resolved",
+        outcome: "failed_attempt",
+        botMoveUci: scriptedBotUci,
+        nextDraftUciMoves: "",
+        nextDraftMoveTimesMs: null,
+        solvedPayload: null,
+      };
+    }
+
+    if (isScenarioOnly && uciList.length >= expectedScenario.length) {
+      return {
+        kind: "resolved",
+        outcome: "solved",
+        botMoveUci: scriptedBotUci,
+        nextDraftUciMoves: "",
+        nextDraftMoveTimesMs: null,
+        solvedPayload: buildSolvedPayload(
+          params.discipline,
+          uciList,
+          sanList,
+          timesList
+        ),
+      };
+    }
+
+    return {
+      kind: "resolved",
+      outcome: "continue",
+      botMoveUci: scriptedBotUci,
+      nextDraftUciMoves: uciList.join(" "),
+      nextDraftMoveTimesMs: timesList,
+      solvedPayload: null,
+    };
+  }
 
   return {
-    uciMoves: normalizedUci.join(" "),
-    pgnMoves: sanList.join(" "),
-    moveTimesMs,
-    userMovesCount: Math.ceil(normalizedUci.length / 2),
-    hasMoveTimings: moveTimesMs !== null,
+    kind: "needs_sparring_reply",
+    pos,
+    discipline: params.discipline,
+    objective: params.objective,
+    uciList,
+    sanList,
+    fenHistory,
+    timesList,
+  };
+}
+
+export function applySparringBotReplyAndResolve(
+  ctx: PendingSparringReplyContext,
+  rawBotBestMove: string
+): EvaluatedStepTerminalOrContinue {
+  const botUci = rawBotBestMove.trim().toLowerCase();
+  const parsedBot = parseUci(botUci);
+  if (!parsedBot || !("from" in parsedBot) || !ctx.pos.isLegal(parsedBot)) {
+    throw new Error(
+      `[AttemptVerifier] Engine returned illegal move '${rawBotBestMove}'.`
+    );
+  }
+
+  const botSan = makeSan(ctx.pos, parsedBot);
+  ctx.pos.play(parsedBot);
+  ctx.uciList.push(botUci);
+  ctx.sanList.push(botSan);
+  ctx.fenHistory.push(makeFen(ctx.pos.toSetup()));
+  ctx.timesList.push(BOT_NORMALIZED_MOVE_TIME_MS);
+
+  if (ctx.pos.isCheckmate()) {
+    return {
+      kind: "resolved",
+      outcome: "failed_attempt",
+      botMoveUci: botUci,
+      nextDraftUciMoves: "",
+      nextDraftMoveTimesMs: null,
+      solvedPayload: null,
+    };
+  }
+
+  const reachedPlyCap = ctx.uciList.length >= MAX_SPARRING_PLIES;
+  if (isFideDrawPosition(ctx.pos, ctx.fenHistory) || reachedPlyCap) {
+    if (ctx.objective === "hold_draw") {
+      return {
+        kind: "resolved",
+        outcome: "solved",
+        botMoveUci: botUci,
+        nextDraftUciMoves: "",
+        nextDraftMoveTimesMs: null,
+        solvedPayload: buildSolvedPayload(
+          ctx.discipline,
+          ctx.uciList,
+          ctx.sanList,
+          ctx.timesList
+        ),
+      };
+    }
+    return {
+      kind: "resolved",
+      outcome: "failed_attempt",
+      botMoveUci: botUci,
+      nextDraftUciMoves: "",
+      nextDraftMoveTimesMs: null,
+      solvedPayload: null,
+    };
+  }
+
+  return {
+    kind: "resolved",
+    outcome: "continue",
+    botMoveUci: botUci,
+    nextDraftUciMoves: ctx.uciList.join(" "),
+    nextDraftMoveTimesMs: ctx.timesList,
+    solvedPayload: null,
   };
 }

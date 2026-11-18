@@ -5,8 +5,10 @@ import {
   integer,
   jsonb,
   pgSchema,
+  pgTable,
   primaryKey,
   serial,
+  smallint,
   text,
   timestamp,
   unique,
@@ -179,6 +181,9 @@ export const challengeAttempts = teleAppSchema.table(
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    attemptStartedAt: timestamp("attempt_started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -194,6 +199,17 @@ export const challengeAttempts = teleAppSchema.table(
     ),
   })
 );
+
+export const postgresDoctorHeartbeat = pgTable("postgres_doctor_heartbeat", {
+  id: smallint("id").primaryKey().default(1),
+  lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
+  lastBackupSizeBytes: bigint("last_backup_size_bytes", { mode: "number" }),
+  lastBackupFile: text("last_backup_file"),
+  lastVacuumAt: timestamp("last_vacuum_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const promoCampaigns = teleAppSchema.table("promo_campaigns", {
   id: serial("id").primaryKey(),

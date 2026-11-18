@@ -43,20 +43,13 @@ export const attemptIdParamsSchema = {
   },
 } as const;
 
-export const submitAttemptBodySchema = {
+export const playChallengeMoveBodySchema = {
   type: "object",
-  required: ["solved", "time_ms"],
+  required: ["uci_move"],
   additionalProperties: false,
   properties: {
-    solved: { type: "boolean" },
-    time_ms: { type: "number", minimum: 0, maximum: 86_400_000 },
-    uci_moves: { type: "string", maxLength: 4096 },
-    pgn_moves: { type: "string", maxLength: 8192 },
-    move_times_ms: {
-      type: "array",
-      maxItems: 500,
-      items: { type: "number", minimum: 0, maximum: 600_000 },
-    },
+    uci_move: { type: "string", minLength: 4, maxLength: 8 },
+    move_time_ms: { type: "number", minimum: 0, maximum: 600_000 },
   },
 } as const;
 
@@ -135,38 +128,16 @@ export const publishNowBodySchema = {
   },
 } as const;
 
-export const engineBestmoveBodySchema = {
-  type: "object",
-  required: ["engine", "start_fen", "moves"],
-  additionalProperties: false,
-  properties: {
-    engine: { type: "string", enum: ["mozero"] },
-    start_fen: { type: "string", minLength: 1, maxLength: 120 },
-    moves: {
-      type: "array",
-      maxItems: 500,
-      items: { type: "string", minLength: 4, maxLength: 8 },
-    },
-  },
-} as const;
-
-export const engineGaviotaBodySchema = {
-  type: "object",
-  required: ["fen"],
-  additionalProperties: false,
-  properties: {
-    fen: { type: "string", minLength: 1, maxLength: 120 },
-    max_candidates: { type: "integer", minimum: 1, maximum: 16 },
-    include_pv: { type: "boolean" },
-  },
-} as const;
-
 export const coachUciFenBodySchema = {
   type: "object",
-  required: ["start_fen"],
+  required: ["start_fen", "discipline", "puzzle_id", "edition", "chat_id"],
   additionalProperties: false,
   properties: {
     user_id: { type: "string", maxLength: 64 },
+    discipline: { type: "string", enum: DISCIPLINE_ENUM },
+    puzzle_id: { type: "string", minLength: 1, maxLength: 64 },
+    edition: { type: "string", minLength: 1, maxLength: 32 },
+    chat_id: { type: "string", pattern: "^-?[0-9]{1,20}$" },
     start_fen: { type: "string", minLength: 1, maxLength: 120 },
     moves: {
       type: "array",
