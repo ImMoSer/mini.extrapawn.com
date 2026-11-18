@@ -113,9 +113,17 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
       const displayName = req.user.firstName;
 
       try {
-        const club = await requireExistingClub(chatId, {
-          allowSuperadminBypass: req.user.isSuperadmin,
-        });
+        const [club, snapshot] = await Promise.all([
+          requireExistingClub(chatId, {
+            allowSuperadminBypass: req.user.isSuperadmin,
+          }),
+          resolveChallengeSnapshot({
+            chatId,
+            discipline,
+            puzzleId,
+            edition: safeEdition,
+          }),
+        ]);
 
         const expired = await isChallengeExpiredForViewer({
           chatId,
@@ -124,6 +132,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           edition: safeEdition,
           viewerTelegramId: req.user.telegramId,
           clubTimezone: club.timezone,
+          publishedAt: snapshot.challengeRow.publishedAt,
         });
         if (expired) {
           return reply.code(410).send({
@@ -146,6 +155,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
           viewerDisplayName: displayName,
           viewerIsSuperadmin: req.user.isSuperadmin,
           canInitializeAttempt: isMember,
+          preloadedSnapshot: snapshot,
         });
       } catch (err) {
         if (
@@ -215,6 +225,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
         clubTimezone: club.timezone,
+        publishedAt: snapshot.challengeRow.publishedAt,
       });
       if (expired) {
         return reply.code(410).send({
@@ -303,6 +314,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
         clubTimezone: club.timezone,
+        publishedAt: snapshot.challengeRow.publishedAt,
       });
       if (expired) {
         return reply.code(410).send({
@@ -380,6 +392,7 @@ export const challengesRoutes: FastifyPluginAsync = async (fastify) => {
         edition: safeEdition,
         viewerTelegramId: req.user.telegramId,
         clubTimezone: club.timezone,
+        publishedAt: snapshot.challengeRow.publishedAt,
       });
       if (expired) {
         return reply.code(410).send({

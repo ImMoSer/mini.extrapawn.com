@@ -16,8 +16,9 @@ import { triggerHapticImpact } from "@/shared/lib/telegram";
 export const BOT_NORMALIZED_MOVE_TIME_MS = 250;
 export const MIN_USER_MOVE_TIME_MS = 100;
 export const MAX_USER_MOVE_TIME_MS = 10_000;
-const MIN_BOT_VISUAL_DELAY_MS = 220;
-const TERMINAL_BOT_PREVIEW_MS = 550;
+const DRAG_MIN_BOT_GAP_MS = 55;
+const CLICK_MIN_BOT_GAP_MS = 135;
+const TERMINAL_BOT_PREVIEW_MS = 500;
 
 export type EvaluatedMoveResult = AppliedMoveResult & {
   isThreefoldRepetition: boolean;
@@ -81,7 +82,10 @@ export function createChallengeEngineFlow(deps: {
   onSolvedFromServer: (state: ChallengeStateDTO) => void;
   onFailedAttemptFromServer: (state: ChallengeStateDTO) => void;
 }) {
-  async function executeActiveSolvingMove(uciMove: string): Promise<void> {
+  async function executeActiveSolvingMove(
+    uciMove: string,
+    options?: { wasDragged?: boolean }
+  ): Promise<void> {
     const c = deps.challenge.value;
     if (!c || deps.isFinished()) return;
 
@@ -91,14 +95,19 @@ export function createChallengeEngineFlow(deps: {
       Math.max(MIN_USER_MOVE_TIME_MS, Date.now() - deps.getTurnStartedAt())
     );
 
+    const revisionAtRequest = deps.boardRevision.value;
+    const requestStartedAt = Date.now();
+
+    // Batch isBotThinking=true and user move into a single synchronous Vue flush
+    deps.isBotThinking.value = true;
+    deps.error.value = null;
     const userEvaluated = deps.commitAppliedMove(preview, userPlyDurationMs);
     triggerHapticImpact("light");
     playAppliedMoveSound(userEvaluated);
 
-    const revisionAtRequest = deps.boardRevision.value;
-    const requestStartedAt = Date.now();
-    deps.isBotThinking.value = true;
-    deps.error.value = null;
+    const minBotGapMs = options?.wasDragged
+      ? DRAG_MIN_BOT_GAP_MS
+      : CLICK_MIN_BOT_GAP_MS;
 
     try {
       const res = await apiRequest<PlayChallengeMoveResponseDTO>(
@@ -121,52 +130,82 @@ export function createChallengeEngineFlow(deps: {
       }
 
       if (res.outcome === "wrong_move") {
-        deps.onFailedAttemptFromServer(res.state);
+        deps.isBotThinking.value = false;
+        if (res.state) {
+          deps.onFailedAttemptFromServer(res.state);
+        }
         return;
       }
 
       if (res.bot_move_uci) {
         const elapsedSinceSend = Date.now() - requestStartedAt;
-        if (elapsedSinceSend < MIN_BOT_VISUAL_DELAY_MS) {
-          await sleepMs(MIN_BOT_VISUAL_DELAY_MS - elapsedSinceSend);
+        if (elapsedSinceSend < minBotGapMs) {
+          await sleepMs(minBotGapMs - elapsedSinceSend);
           if (deps.boardRevision.value !== revisionAtRequest) {
             return;
           }
         }
+      }
 
-        const botEvaluated = deps.commitAppliedMove(
-          applyMoveToFen(deps.currentFen.value, res.bot_move_uci),
-          BOT_NORMALIZED_MOVE_TIME_MS
-        );
-        playAppliedMoveSound(botEvaluated);
+      if (res.outcome === "continue") {
+        // Single-tick atomic flush: flip isBotThinking=false TOGETHER with applying the bot move
+        // and leave challenge.value untouched -> Chessground runs ground.set() ONCE with zero mid-flight interruption!
+        deps.isBotThinking.value = false;
+        if (res.bot_move_uci) {
+          const botEvaluated = deps.commitAppliedMove(
+            applyMoveToFen(deps.currentFen.value, res.bot_move_uci),
+            BOT_NORMALIZED_MOVE_TIME_MS
+          );
+          playAppliedMoveSound(botEvaluated);
+        }
+        return;
       }
 
       if (res.outcome === "solved") {
-        deps.onSolvedFromServer(res.state);
+        deps.isBotThinking.value = false;
+        if (res.bot_move_uci) {
+          const botEvaluated = deps.commitAppliedMove(
+            applyMoveToFen(deps.currentFen.value, res.bot_move_uci),
+            BOT_NORMALIZED_MOVE_TIME_MS
+          );
+          playAppliedMoveSound(botEvaluated);
+        }
+        if (res.state) {
+          deps.onSolvedFromServer(res.state);
+        }
         return;
       }
 
       if (res.outcome === "failed_attempt") {
         if (res.bot_move_uci) {
+          const botEvaluated = deps.commitAppliedMove(
+            applyMoveToFen(deps.currentFen.value, res.bot_move_uci),
+            BOT_NORMALIZED_MOVE_TIME_MS
+          );
+          playAppliedMoveSound(botEvaluated);
           await sleepMs(TERMINAL_BOT_PREVIEW_MS);
           if (deps.boardRevision.value !== revisionAtRequest) {
             return;
           }
         }
-        deps.onFailedAttemptFromServer(res.state);
-        return;
+        deps.isBotThinking.value = false;
+        if (res.state) {
+          deps.onFailedAttemptFromServer(res.state);
+        }
       }
-
-      deps.challenge.value = res.state;
     } catch (err) {
       if (deps.boardRevision.value !== revisionAtRequest) {
         return;
       }
+      deps.isBotThinking.value = false;
       deps.rollbackOptimisticMove();
       deps.error.value = err instanceof Error ? err.message : String(err);
       console.error("[ChallengeSession] Move submission failed:", err);
     } finally {
-      if (deps.boardRevision.value === revisionAtRequest) {
+      if (
+        deps.isBotThinking.value &&
+        deps.boardRevision.value === revisionAtRequest
+      ) {
         deps.isBotThinking.value = false;
       }
     }

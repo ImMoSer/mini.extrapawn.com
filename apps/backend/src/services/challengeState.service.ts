@@ -63,10 +63,17 @@ export interface ResolvedChallengeSnapshot {
   normalized?: NormalizedChallengePuzzle;
 }
 
+const SNAPSHOT_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_SNAPSHOT_CACHE_SIZE = 500;
+const snapshotCache = new Map<
+  string,
+  { snapshot: ResolvedChallengeSnapshot; expiresAt: number }
+>();
+
 /**
- * Snapshot-First lookup: published challenges in `tele_app.club_challenges` already hold
- * the complete immutable board & solution snapshot, so they resolve in 0 HTTP calls
- * and remain 100% playable even if `puzzle_service` rotates its CSV catalog.
+ * Snapshot-First lookup with bounded in-memory TTL cache: published challenges in
+ * `tele_app.club_challenges` hold an immutable board & solution snapshot, resolving
+ * in 0 SQL / 0 HTTP calls on warm hits during rapid sparring moves.
  */
 export async function resolveChallengeSnapshot(params: {
   chatId: string;
@@ -74,6 +81,13 @@ export async function resolveChallengeSnapshot(params: {
   puzzleId: string;
   edition: string;
 }): Promise<ResolvedChallengeSnapshot> {
+  const cacheKey = `${params.chatId}:${params.discipline}:${params.puzzleId}:${params.edition}`;
+  const nowMs = Date.now();
+  const cached = snapshotCache.get(cacheKey);
+  if (cached && cached.expiresAt > nowMs) {
+    return cached.snapshot;
+  }
+
   const [existing] = await db
     .select()
     .from(clubChallenges)
@@ -93,7 +107,16 @@ export async function resolveChallengeSnapshot(params: {
         `[ChallengeState] Corrupt snapshot in club_challenges id=${existing.id}: missing FEN`
       );
     }
-    return { challengeRow: existing };
+    if (snapshotCache.size >= MAX_SNAPSHOT_CACHE_SIZE) {
+      const oldestKey = snapshotCache.keys().next().value;
+      if (oldestKey) snapshotCache.delete(oldestKey);
+    }
+    const resolved: ResolvedChallengeSnapshot = { challengeRow: existing };
+    snapshotCache.set(cacheKey, {
+      snapshot: resolved,
+      expiresAt: nowMs + SNAPSHOT_CACHE_TTL_MS,
+    });
+    return resolved;
   }
 
   throw new PuzzleNotFoundError(params.discipline, params.puzzleId);

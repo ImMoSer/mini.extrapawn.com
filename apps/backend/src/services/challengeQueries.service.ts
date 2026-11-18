@@ -64,31 +64,30 @@ export async function isChallengeExpiredForViewer(params: {
   edition: string;
   viewerTelegramId: string;
   clubTimezone: string;
+  publishedAt?: Date;
 }): Promise<boolean> {
-  const [challengeRow] = await db
-    .select({ publishedAt: clubChallenges.publishedAt })
-    .from(clubChallenges)
-    .where(
-      and(
-        eq(clubChallenges.chatId, params.chatId),
-        eq(clubChallenges.discipline, params.discipline),
-        eq(clubChallenges.puzzleId, params.puzzleId),
-        eq(clubChallenges.edition, params.edition)
+  let publishedAt = params.publishedAt;
+  if (!publishedAt) {
+    const [challengeRow] = await db
+      .select({ publishedAt: clubChallenges.publishedAt })
+      .from(clubChallenges)
+      .where(
+        and(
+          eq(clubChallenges.chatId, params.chatId),
+          eq(clubChallenges.discipline, params.discipline),
+          eq(clubChallenges.puzzleId, params.puzzleId),
+          eq(clubChallenges.edition, params.edition)
+        )
       )
-    )
-    .limit(1);
+      .limit(1);
 
-  if (!challengeRow) {
-    return false;
+    if (!challengeRow) {
+      return false;
+    }
+    publishedAt = challengeRow.publishedAt;
   }
 
-  if (
-    isSameDayInTimezone(
-      challengeRow.publishedAt,
-      new Date(),
-      params.clubTimezone
-    )
-  ) {
+  if (isSameDayInTimezone(publishedAt, new Date(), params.clubTimezone)) {
     return false;
   }
 

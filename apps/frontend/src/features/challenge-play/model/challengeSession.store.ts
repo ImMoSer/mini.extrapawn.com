@@ -361,7 +361,10 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
     }
   }
 
-  async function handleUserMove(uciMove: string): Promise<void> {
+  async function handleUserMove(
+    uciMove: string,
+    options?: { wasDragged?: boolean }
+  ): Promise<void> {
     if (!challenge.value) return;
 
     if (isFinished.value) {
@@ -389,7 +392,7 @@ export const useChallengeSessionStore = defineStore("challengeSession", () => {
 
     error.value = null;
     feedbackBanner.value = null;
-    await engineFlow.executeActiveSolvingMove(uciMove);
+    await engineFlow.executeActiveSolvingMove(uciMove, options);
   }
 
   async function resetChallengeAttempt(): Promise<void> {

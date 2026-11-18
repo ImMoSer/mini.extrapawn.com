@@ -732,7 +732,7 @@ export interface PlayChallengeMoveRequest {
 export interface PlayChallengeMoveResponseDTO {
   outcome: ChallengeMoveOutcome;
   bot_move_uci: string | null;
-  state: ChallengeStateDTO;
+  state: ChallengeStateDTO | null;
 }
 
 export interface ChallengeAttemptRefDTO {

@@ -172,6 +172,14 @@ export async function playChallengeMove(params: {
           409
         );
       }
+
+      // Fast-path: intermediate moves do not alter leaderboard, attempts count, or GO feed,
+      // so skip building full ChallengeStateDTO (saves ~10 SQL queries & ~2 KB payload per ply).
+      return {
+        outcome: "continue",
+        bot_move_uci: resolved.botMoveUci,
+        state: null,
+      };
     } else if (
       resolved.outcome === "wrong_move" ||
       resolved.outcome === "failed_attempt"

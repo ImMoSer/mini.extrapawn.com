@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Dests, Key } from "@lichess-org/chessground/types";
+import type { Dests, Key, MoveMetadata } from "@lichess-org/chessground/types";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -97,9 +97,11 @@ const activeBoardShapes = computed<CoachDrawShape[]>(() => {
   return [];
 });
 
+const EMPTY_DESTS: Dests = new Map();
+
 const activeDests = computed<Dests>(() => {
   void store.boardRevision;
-  return store.isBoardInteractive ? new Map(boardStore.dests) : new Map();
+  return store.isBoardInteractive ? boardStore.dests : EMPTY_DESTS;
 });
 
 watch(
@@ -113,9 +115,11 @@ watch(
 async function handleBoardUserMove({
   orig,
   dest,
+  metadata,
 }: {
   orig: Key;
   dest: Key;
+  metadata: MoveMetadata;
 }): Promise<void> {
   const uci = await boardStore.prepareUserUciMove({ orig, dest });
   if (!uci) {
@@ -123,7 +127,8 @@ async function handleBoardUserMove({
     boardStore.syncVisualCues({ lastMove: store.lastMove });
     return;
   }
-  await store.handleUserMove(uci);
+  const wasDragged = typeof metadata?.holdTime === "number";
+  await store.handleUserMove(uci, { wasDragged });
 }
 
 function handleWheelNavigate(direction: "up" | "down"): void {

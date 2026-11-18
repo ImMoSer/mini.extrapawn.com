@@ -300,7 +300,6 @@ watch(
       },
     })
   },
-  { deep: true },
 )
 </script>
 
