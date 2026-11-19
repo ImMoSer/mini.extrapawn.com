@@ -1,6 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import type { AppLanguage } from "shared";
-import { callTelegramJson } from "../bot/telegramApi.js";
+import {
+  callTelegramJson,
+  describeNetworkError,
+  isTransientTelegramApiError,
+} from "../bot/telegramApi.js";
 import { env } from "../config/env.js";
 import { db } from "../db/index.js";
 import { challengeAttempts, clubAdmins } from "../db/schema.js";
@@ -12,12 +16,16 @@ interface TelegramMemberLookupPayload {
 
 const POSITIVE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes for verified members
 const NEGATIVE_CACHE_TTL_MS = 30 * 1000; // 30 seconds so newly-joined members pass right away
+const FALLBACK_POSITIVE_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes for DB-affiliated fallback during Telegram API outage
+const TELEGRAM_MEMBERSHIP_TIMEOUT_MS = 4_000; // Fast timeout for interactive HTTP request paths
 const MAX_CACHE_ENTRIES = 5_000;
 
 const membershipCache = new Map<
   string,
   { isMember: boolean; expiresAt: number }
 >();
+
+const inFlightMembershipChecks = new Map<string, Promise<boolean>>();
 
 const MEMBERSHIP_ERRORS: Record<AppLanguage, string> = {
   ru: "Чтобы участвовать в челленджах этого клуба, необходимо состоять в его Telegram-группе.",
@@ -114,6 +122,52 @@ async function hasHistoricalClubAffiliation(
   return Boolean(solvedRow);
 }
 
+async function verifyClubMembershipUncached(
+  chatId: string,
+  telegramId: string,
+  numericUserId: number,
+  cacheKey: string
+): Promise<boolean> {
+  try {
+    const res = await callTelegramJson<TelegramMemberLookupPayload>(
+      "getChatMember",
+      {
+        chat_id: chatId,
+        user_id: numericUserId,
+      },
+      {
+        timeoutMs: TELEGRAM_MEMBERSHIP_TIMEOUT_MS,
+        maxAttempts: 1,
+      }
+    );
+
+    if (isTransientTelegramApiError(res)) {
+      throw new Error(
+        res.description ?? `Telegram transient HTTP ${res.error_code ?? "5xx"}`
+      );
+    }
+
+    const isMember = res.ok && isActiveTelegramGroupMember(res.result);
+    setMembershipCache(
+      cacheKey,
+      isMember,
+      isMember ? POSITIVE_CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS
+    );
+    return isMember;
+  } catch (err) {
+    console.warn(
+      `[ClubMembership] getChatMember transient error for chat ${chatId}, user ${telegramId}: ${describeNetworkError(err)}`
+    );
+    // Transient outage on api.telegram.org: allow already-known club participants
+    // and cache the positive fallback briefly so subsequent moves don't stall on a dead gateway.
+    const known = await hasHistoricalClubAffiliation(chatId, telegramId);
+    if (known) {
+      setMembershipCache(cacheKey, true, FALLBACK_POSITIVE_CACHE_TTL_MS);
+    }
+    return known;
+  }
+}
+
 /**
  * Verifies via Telegram Bot API (`getChatMember`) that `telegramId` is an actual member
  * of the supergroup `chatId` before accepting challenge submissions or triggering chat replies.
@@ -142,37 +196,22 @@ export async function requireClubParticipantMembership(params: {
     throw new ClubMembershipRequiredError(params.languageCode);
   }
 
-  try {
-    const res = await callTelegramJson<TelegramMemberLookupPayload>(
-      "getChatMember",
-      {
-        chat_id: params.chatId,
-        user_id: numericUserId,
-      }
-    );
-
-    const isMember = res.ok && isActiveTelegramGroupMember(res.result);
-    setMembershipCache(
-      cacheKey,
-      isMember,
-      isMember ? POSITIVE_CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS
-    );
-
-    if (!isMember) {
-      throw new ClubMembershipRequiredError(params.languageCode);
-    }
-  } catch (err) {
-    if (err instanceof ClubMembershipRequiredError) {
-      throw err;
-    }
-    // Transient network error to api.telegram.org: allow only already-known club participants
-    const known = await hasHistoricalClubAffiliation(
+  let checkPromise = inFlightMembershipChecks.get(cacheKey);
+  if (!checkPromise) {
+    checkPromise = verifyClubMembershipUncached(
       params.chatId,
-      params.telegramId
-    );
-    if (!known) {
-      throw new ClubMembershipRequiredError(params.languageCode);
-    }
+      params.telegramId,
+      numericUserId,
+      cacheKey
+    ).finally(() => {
+      inFlightMembershipChecks.delete(cacheKey);
+    });
+    inFlightMembershipChecks.set(cacheKey, checkPromise);
+  }
+
+  const isMember = await checkPromise;
+  if (!isMember) {
+    throw new ClubMembershipRequiredError(params.languageCode);
   }
 }
 

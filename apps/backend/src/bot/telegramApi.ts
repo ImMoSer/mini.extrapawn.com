@@ -14,6 +14,30 @@ export interface TelegramApiResponse<T> {
   };
 }
 
+export interface CallTelegramJsonOptions {
+  timeoutMs?: number;
+  maxAttempts?: number;
+}
+
+/**
+ * Returns `true` when Telegram's Bot API responded with a transient server/rate-limit
+ * status (`429`, `500`, `502`, `503`, `504`) rather than an authoritative domain rejection
+ * (such as `400 Bad Request` or `403 Forbidden`).
+ */
+export function isTransientTelegramApiError(
+  res: Pick<TelegramApiResponse<unknown>, "ok" | "error_code">
+): boolean {
+  if (res.ok) return false;
+  const code = res.error_code;
+  return (
+    code === 429 ||
+    code === 500 ||
+    code === 502 ||
+    code === 503 ||
+    code === 504
+  );
+}
+
 export interface SendTelegramPhotoParams {
   chatId: string;
   messageThreadId?: number;
@@ -92,15 +116,16 @@ export function escapeHtml(raw: string): string {
 
 export async function callTelegramJson<T>(
   method: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  options?: CallTelegramJsonOptions
 ): Promise<TelegramApiResponse<T>> {
   if (!env.TELEGRAM_BOT_TOKEN) {
     return { ok: false, description: "TELEGRAM_BOT_TOKEN not set" };
   }
   const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`;
   const isLongPoll = method === "getUpdates";
-  const maxAttempts = isLongPoll ? 1 : 3;
-  const timeoutMs = isLongPoll ? 25_000 : 15_000;
+  const maxAttempts = options?.maxAttempts ?? (isLongPoll ? 1 : 3);
+  const timeoutMs = options?.timeoutMs ?? (isLongPoll ? 25_000 : 15_000);
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

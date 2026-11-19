@@ -58,6 +58,7 @@ import {
   describeNetworkError,
   escapeHtml,
   flushClubTopicMessagesOnPublish,
+  isTransientTelegramApiError,
   normalizeLang,
   sendTelegramPhoto,
   sendTelegramPhotoWithOutcome,
@@ -1297,8 +1298,19 @@ export const telegramBotService = {
         {
           chat_id: chatId,
           user_id: numericUserId,
+        },
+        {
+          timeoutMs: 4_000,
+          maxAttempts: 1,
         }
       );
+
+      if (isTransientTelegramApiError(res)) {
+        throw new Error(
+          res.description ??
+            `Telegram transient HTTP ${res.error_code ?? "5xx"}`
+        );
+      }
 
       if (!res.ok || !res.result) {
         liveAdminRoleCache.set(cacheKey, {
@@ -2067,8 +2079,18 @@ let pollingActive = false;
 let lastUpdateOffset = 0;
 let consecutivePollErrors = 0;
 
-async function pollTelegramUpdatesOnce(): Promise<void> {
-  if (!env.TELEGRAM_BOT_TOKEN) return;
+const POLL_BASE_DELAY_MS = 2_000;
+const POLL_CONFLICT_DELAY_MS = 30_000;
+const POLL_MAX_BACKOFF_MS = 30_000;
+
+function computePollRetryDelayMs(errorCount: number): number {
+  if (errorCount <= 0) return POLL_BASE_DELAY_MS;
+  const exponent = Math.min(errorCount - 1, 4); // 2s -> 4s -> 8s -> 16s -> 30s
+  return Math.min(POLL_BASE_DELAY_MS * 2 ** exponent, POLL_MAX_BACKOFF_MS);
+}
+
+async function pollTelegramUpdatesOnce(): Promise<number> {
+  if (!env.TELEGRAM_BOT_TOKEN) return POLL_BASE_DELAY_MS;
   try {
     const res = await callTelegramJson<TelegramUpdate[]>("getUpdates", {
       offset: lastUpdateOffset,
@@ -2085,16 +2107,16 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
         console.warn(
           "[TelegramBot] 409 Conflict on getUpdates (another instance is polling); backing off 30s."
         );
-        await new Promise((r) => setTimeout(r, 30_000));
-        return;
+        return POLL_CONFLICT_DELAY_MS;
       }
       consecutivePollErrors += 1;
+      const nextDelayMs = computePollRetryDelayMs(consecutivePollErrors);
       if (consecutivePollErrors === 3 || consecutivePollErrors % 10 === 0) {
         console.warn(
-          `[TelegramBot] Polling API error x${consecutivePollErrors} (will retry in 2s): ${res.description ?? `HTTP ${res.error_code ?? "unknown"}`}`
+          `[TelegramBot] Polling API error x${consecutivePollErrors} (will retry in ${Math.round(nextDelayMs / 1000)}s): ${res.description ?? `HTTP ${res.error_code ?? "unknown"}`}`
         );
       }
-      return;
+      return nextDelayMs;
     }
 
     if (consecutivePollErrors >= 3) {
@@ -2104,7 +2126,7 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
     }
     consecutivePollErrors = 0;
 
-    if (!res.result) return;
+    if (!res.result) return POLL_BASE_DELAY_MS;
 
     for (const upd of res.result) {
       lastUpdateOffset = Math.max(lastUpdateOffset, upd.update_id + 1);
@@ -2148,13 +2170,16 @@ async function pollTelegramUpdatesOnce(): Promise<void> {
         });
       }
     }
+    return POLL_BASE_DELAY_MS;
   } catch (err) {
     consecutivePollErrors += 1;
+    const nextDelayMs = computePollRetryDelayMs(consecutivePollErrors);
     if (consecutivePollErrors === 3 || consecutivePollErrors % 10 === 0) {
       console.warn(
-        `[TelegramBot] Polling network error x${consecutivePollErrors} (will retry in 2s): ${describeNetworkError(err)}`
+        `[TelegramBot] Polling network error x${consecutivePollErrors} (will retry in ${Math.round(nextDelayMs / 1000)}s): ${describeNetworkError(err)}`
       );
     }
+    return nextDelayMs;
   }
 }
 
@@ -2430,8 +2455,8 @@ export function startTelegramBotBackgroundLoops(): void {
 
   const loop = async () => {
     while (pollingActive) {
-      await pollTelegramUpdatesOnce();
-      await new Promise((r) => setTimeout(r, 2000));
+      const nextDelayMs = await pollTelegramUpdatesOnce();
+      await new Promise((r) => setTimeout(r, nextDelayMs));
     }
   };
   void loop();

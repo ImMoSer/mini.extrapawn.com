@@ -41,15 +41,15 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── plugins/
 │   │       │   └── telegramAuth.ts           # Проверка HMAC-SHA256 Telegram initData + upsert юзера
 │   │       ├── bot/
-│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API, идемпотентный sendTelegramPhoto (60с таймаут, без дублей при TimeoutError/504), deleteMessages, topic_message_ids
+│   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API (per-call timeoutMs/maxAttempts, isTransientTelegramApiError), идемпотентный sendTelegramPhoto (60с таймаут, без дублей при TimeoutError/504), deleteMessages, topic_message_ids
 │   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([▶ | ▶▶]) и настройках
 │   │       │   ├── clubModeration.ts         # Модерация заявок клубов (pending -> active / reject) + инлайн-кнопки ЛС BOSS
-│   │       │   └── telegramBot.service.ts    # Long-polling бот, расписание с мьютексом isSchedulerTickRunning + inFlightClubPublishes, Snapshot-Before-Send публикация и авто-пауза
+│   │       │   └── telegramBot.service.ts    # Long-polling бот с exponential backoff (2s..30s), расписание с мьютексом isSchedulerTickRunning + inFlightClubPublishes, Snapshot-Before-Send публикация и авто-пауза
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Внутренний генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
 │   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и stockfish_server:5000 (Coach)
-│   │       │   ├── clubMembership.service.ts # Проверка членства участника в супергруппе (getChatMember + TTL-кэш)
+│   │       │   ├── clubMembership.service.ts # Проверка членства участника в супергруппе (быстрый getChatMember 4s/1x, in-flight дедупликация, TTL-кэш + 2-мин кэш DB-fallback при сбоях Telegram)
 │   │       │   ├── attemptVerifier.service.ts# Чистый chessops-движок валидации ходов, сценариев и правил ФИДЕ
 │   │       │   ├── challengePlay.service.ts  # Server-Authoritative шаг попытки (/move, /reset), мьютекс, HOT-апдейт черновика
 │   │       │   ├── challengeQueries.service.ts # Сборка списков задач GO, клуба и экспирации
