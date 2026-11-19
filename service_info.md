@@ -42,9 +42,17 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       │   └── telegramAuth.ts           # Проверка HMAC-SHA256 Telegram initData + upsert юзера
 │   │       ├── bot/
 │   │       │   ├── telegramApi.ts            # Вызовы Telegram Bot API (per-call timeoutMs/maxAttempts, isTransientTelegramApiError), идемпотентный sendTelegramPhoto (60с таймаут, без дублей при TimeoutError/504), deleteMessages, topic_message_ids
+│   │       │   ├── botTypes.ts               # Типы Telegram Update/User/ChatMember и контракты публикации/промо
+│   │       │   ├── botTexts.ts               # Локализованные тексты онбординга, buildChallengeCaption, таймзоны getClubZonedTime
+│   │       │   ├── botIncidents.ts           # Инцидент-алерты BOSSу, выход из чата (leaveClubChat) и блокировка с QR-кодом
+│   │       │   ├── botAdminSync.ts           # Синхронизация прав админов/бота (getChatAdministrators, getChatMember 4s/1x, кэш 20с)
+│   │       │   ├── botAutoPause.ts           # Умная авто-пауза (findLatestUnresolvedChallenge, clearAutoPause, reply-уведомление)
+│   │       │   ├── botChallengePublisher.ts  # Snapshot-Before-Send публикация челленджей (с мьютексом inFlightClubPublishes) и промо-рассылка
+│   │       │   ├── botClubOnboarding.ts      # Обработчики `my_chat_member` и `chat_member` (онбординг, лимит 2 клубов, модерация)
+│   │       │   ├── botScheduler.ts           # Long-polling с exponential backoff (2s..30s), тик расписания, 7-дневная ротация БД
 │   │       │   ├── botNotifications.ts       # Локализованные уведомления о решениях ([▶ | ▶▶]) и настройках
 │   │       │   ├── clubModeration.ts         # Модерация заявок клубов (pending -> active / reject) + инлайн-кнопки ЛС BOSS
-│   │       │   └── telegramBot.service.ts    # Long-polling бот с exponential backoff (2s..30s), расписание с мьютексом isSchedulerTickRunning + inFlightClubPublishes, Snapshot-Before-Send публикация и авто-пауза
+│   │       │   └── telegramBot.service.ts    # Тонкий фасад (~135 строк), экспортирующий `telegramBotService` и `startTelegramBotBackgroundLoops`
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Внутренний генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
@@ -248,6 +256,6 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 
 ## 7. Технический долг (Technical Debt)
 
-- Все открытые задачи (включая дальнейшую декомпозицию `telegramBot.service.ts`) ведутся централизованно в корневом [`technical_debt.md`](file:///c:/MY_APPS/CHESS_APP/technical_debt.md) (`TD-04b`, `TD-05`).
+- Все открытые задачи по экосистеме ведутся централизованно в корневом [`technical_debt.md`](file:///c:/MY_APPS/CHESS_APP/technical_debt.md) (монолит `telegramBot.service.ts` полностью декомпозирован на модули строго `< 500` строк).
 
 
