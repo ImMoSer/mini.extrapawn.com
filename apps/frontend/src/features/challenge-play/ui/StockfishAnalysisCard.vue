@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { uciLineToSan } from "@/entities/chess/lib/chessPosition";
+import {
+  getNagSymbolForQuality,
+  getQualityTextClass,
+  type ClassifiedEngineLine,
+} from "@/shared/lib/analysis/localAnalysisVisuals";
 import type { WasmAnalysisState } from "@/shared/lib/stockfishWasm";
 
 const props = defineProps<{
   wasmState: WasmAnalysisState;
+  classifiedLines: ClassifiedEngineLine[];
   currentFen: string;
-  selectedMultipv: number;
+  selectedMultipv: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -14,11 +20,19 @@ const emit = defineEmits<{
 }>();
 
 const formattedSfLines = computed(() => {
+  const classifiedById = new Map(props.classifiedLines.map((c) => [c.id, c]));
   return props.wasmState.lines.map((line) => {
-    const sanMoves = uciLineToSan(props.currentFen, line.pvUci);
+    const sanMoves = uciLineToSan(props.currentFen, line.pvUci.slice(0, 6));
+    const classified = classifiedById.get(line.multipv);
+    const outcomeBrush = classified?.outcomeBrush ?? line.arrowBrush;
     return {
       ...line,
-      pvText: sanMoves.length > 0 ? sanMoves.join(" ") : line.pvUci.join(" "),
+      outcomeBrush,
+      nagSymbol: classified ? getNagSymbolForQuality(classified.quality) : null,
+      nagClass: classified
+        ? getQualityTextClass(classified.quality)
+        : "text-text-secondary",
+      pvText: sanMoves.length > 0 ? sanMoves.join(" ") : line.pvUci.slice(0, 6).join(" "),
     };
   });
 });
@@ -50,13 +64,13 @@ const formattedSfLines = computed(() => {
       ></div>
     </div>
 
-    <!-- 3 MultiPV Lines with Win/Draw/Loss Evaluation Colors -->
+    <!-- 3 MultiPV Lines with Win/Draw/Loss Evaluation Colors & NAG Quality Badges -->
     <div v-if="formattedSfLines.length > 0" class="mt-0.5 flex flex-col gap-1">
       <button
         v-for="line in formattedSfLines"
         :key="line.multipv"
         type="button"
-        class="flex w-full items-center gap-2 rounded border px-2 py-1 text-left text-xs transition"
+        class="flex w-full items-center gap-1.5 rounded border px-2 py-1 text-left text-xs transition"
         :class="
           selectedMultipv === line.multipv
             ? 'border-border-hover bg-elevated'
@@ -70,14 +84,20 @@ const formattedSfLines = computed(() => {
         <span
           class="w-12 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-[11px] font-bold"
           :class="
-            line.arrowBrush === 'green'
+            line.outcomeBrush === 'green'
               ? 'bg-success/15 text-success'
-              : line.arrowBrush === 'red'
+              : line.outcomeBrush === 'red'
                 ? 'bg-danger/15 text-danger'
                 : 'bg-info/15 text-info'
           "
         >
           {{ line.evalLabel }}
+        </span>
+        <span
+          class="inline-flex w-4 shrink-0 items-center justify-center text-center text-xs leading-none font-extrabold select-none"
+          :class="line.nagClass"
+        >
+          {{ line.nagSymbol ?? "" }}
         </span>
         <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary">
           {{ line.pvText }}

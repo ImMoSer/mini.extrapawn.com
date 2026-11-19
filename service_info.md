@@ -98,7 +98,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │               ├── api/                      # httpClient.ts (авто-прикрепление X-Telegram-Init-Data)
 │               ├── config/                   # telegram.ts (интеграция с Telegram WebApp SDK)
 │               ├── i18n/                     # useI18n.ts (словари RU / EN / DE)
-│               └── lib/                      # useLocalStockfish.ts (WebWorker Stockfish 19 WASM)
+│               └── lib/                      # stockfishWasm.ts (Stockfish 19 Lite WASM + UCI_ShowWDL), analysis/localAnalysisVisuals.ts (WDL-стрелки + NAG + марши фигур)
 ├── packages/
 │   └── shared/                               # Общие типы, DTO, плитки WarmUp, формула очков и кодек startapp
 ├── docker-compose.yml                        # Стек mini-backend + mini-frontend в dokploy-network
@@ -226,7 +226,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
   - Инициализация `tg.ready()`, `tg.expand()`, `tg.disableVerticalSwipes()` (защита от сворачивания окна при перетаскивании фигур).
   - Синхронизация системных цветов рамки Telegram (`setHeaderColor`, `setBackgroundColor`, `setBottomBarColor`) из CSS-токенов `--theme-surface` и `--theme-canvas`.
   - Криптографическая проверка `HMAC-SHA256` через `crypto.timingSafeEqual` и контроль свежести `auth_date` (TTL 24 часа в продакшене).
-- **Доска, анализ и звук:** текстура `wood4.jpg` / `wood4.thumbnail.jpg`, пул звуков `SoundServiceController`, локальный движок **Stockfish 19 Lite Single-Threaded WASM** (`MultiPV = 3`, раскраска линий по WDL) и панель тренера **CompactCoachPanel** (`visual_commands` совместимая с `app_vue`).
+- **Доска, анализ и звук:** текстура `wood4.jpg` / `wood4.thumbnail.jpg`, пул звуков `SoundServiceController`, локальный движок **Stockfish 19 Lite Single-Threaded WASM** (`MultiPV = 3`, `UCI_ShowWDL = true`, одновременный показ всех 3 стрелок с окраской по исходу для ходящей стороны `green / blue / red`, SVG NAG-бейджами качества относительно `PV1` и тонкими полупрозрачными маршрутами марша короля/фигуры в цвет варианта через `shared/lib/analysis/localAnalysisVisuals.ts`) и панель тренера **CompactCoachPanel** (`visual_commands` совместимая с `app_vue`).
 
 ### 6.2. Кодирование `tgWebAppStartParam` (`packages/shared/src/index.ts`)
 

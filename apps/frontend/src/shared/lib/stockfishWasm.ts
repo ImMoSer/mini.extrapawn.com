@@ -1,6 +1,12 @@
 import { ref } from "vue";
+import {
+  classifyOutcomeBrush,
+  type LocalArrowOutcomeBrush,
+  type LocalScoreMoverPov,
+  type LocalWdlMoverPov,
+} from "./analysis/localAnalysisVisuals";
 
-export type StockfishArrowBrush = "green" | "blue" | "red";
+export type StockfishArrowBrush = LocalArrowOutcomeBrush;
 
 export interface WasmPvLine {
   multipv: number;
@@ -8,6 +14,7 @@ export interface WasmPvLine {
   evalLabel: string;
   moverCp: number | null;
   moverMate: number | null;
+  wdl?: LocalWdlMoverPov;
   bestMoveUci: string;
   pvUci: string[];
   arrowBrush: StockfishArrowBrush;
@@ -27,17 +34,14 @@ export interface WasmAnalysisState {
   lines: WasmPvLine[];
 }
 
-function classifyMoverEvaluation(
+function toMoverScore(
   moverCp: number | null,
   moverMate: number | null
-): StockfishArrowBrush {
+): LocalScoreMoverPov {
   if (moverMate !== null) {
-    return moverMate > 0 ? "green" : "red";
+    return { type: "mate", value: moverMate };
   }
-  if (moverCp === null) return "blue";
-  if (moverCp >= 100) return "green";
-  if (moverCp <= -100) return "red";
-  return "blue";
+  return { type: "cp", value: moverCp ?? 0 };
 }
 
 export function useStockfishWasm() {
@@ -96,6 +100,7 @@ export function useStockfishWasm() {
 
       if (line === "uciok") {
         worker?.postMessage("setoption name MultiPV value 3");
+        worker?.postMessage("setoption name UCI_ShowWDL value true");
         worker?.postMessage("isready");
         return;
       }
@@ -116,6 +121,7 @@ export function useStockfishWasm() {
         const multipvMatch = line.match(/\bmultipv\s+(\d+)/);
         const cpMatch = line.match(/\bscore\s+cp\s+(-?\d+)/);
         const mateMatch = line.match(/\bscore\s+mate\s+(-?\d+)/);
+        const wdlMatch = line.match(/\bwdl\s+(\d+)\s+(\d+)\s+(\d+)/);
         const pvIdx = line.indexOf(" pv ");
 
         if (pvIdx === -1) return;
@@ -156,7 +162,19 @@ export function useStockfishWasm() {
           whitePercent = Math.round(50 + (clamped / 800) * 46);
         }
 
-        const arrowBrush = classifyMoverEvaluation(moverCp, moverMate);
+        const wdl: LocalWdlMoverPov | undefined =
+          wdlMatch?.[1] && wdlMatch[2] && wdlMatch[3]
+            ? {
+                win: Number(wdlMatch[1]),
+                draw: Number(wdlMatch[2]),
+                loss: Number(wdlMatch[3]),
+              }
+            : undefined;
+
+        const arrowBrush = classifyOutcomeBrush(
+          toMoverScore(moverCp, moverMate),
+          wdl
+        );
 
         lineMap.set(multipv, {
           multipv,
@@ -164,8 +182,9 @@ export function useStockfishWasm() {
           evalLabel,
           moverCp,
           moverMate,
+          wdl,
           bestMoveUci: firstMove,
-          pvUci: pvMoves.slice(0, 6),
+          pvUci: pvMoves.slice(0, 10),
           arrowBrush,
         });
 
@@ -180,7 +199,7 @@ export function useStockfishWasm() {
           state.value.evalWhitePercent = whitePercent;
           state.value.bestMoveUci = firstMove;
           state.value.bestMoveBrush = arrowBrush;
-          state.value.pvLine = pvMoves.slice(0, 6);
+          state.value.pvLine = pvMoves.slice(0, 10);
         }
       } else if (line.startsWith("bestmove ")) {
         state.value.isAnalyzing = false;

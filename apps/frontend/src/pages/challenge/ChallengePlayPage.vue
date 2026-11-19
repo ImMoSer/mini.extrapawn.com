@@ -15,6 +15,11 @@ import ChallengeLeaderboardCard from "@/features/challenge-play/ui/ChallengeLead
 import CompactCoachPanel from "@/features/challenge-play/ui/CompactCoachPanel.vue";
 import StockfishAnalysisCard from "@/features/challenge-play/ui/StockfishAnalysisCard.vue";
 import { useI18n } from "@/shared/i18n/useI18n";
+import {
+  buildLocalAnalysisShapes,
+  classifyLocalEngineLines,
+  type ClassifiedEngineLine,
+} from "@/shared/lib/analysis/localAnalysisVisuals";
 import type { CoachDrawShape } from "@/shared/lib/coach/visualizer";
 import { useStockfishWasm } from "@/shared/lib/stockfishWasm";
 
@@ -26,7 +31,7 @@ const coach = useCoachAnalysis();
 const { t, disciplineTitle, difficultyTitle, focusTitle } = useI18n();
 const wasm = useStockfishWasm();
 
-const selectedSfMultipv = ref<number>(1);
+const selectedSfMultipv = ref<number | null>(null);
 
 const routeParams = computed(() => {
   const discipline = (route.params.discipline ||
@@ -67,27 +72,34 @@ const isAnalysisActive = computed(
   () => store.isWasmAnalysisEnabled || store.isCoachAnalysisEnabled
 );
 
+const classifiedSfLines = computed<ClassifiedEngineLine[]>(() => {
+  if (!store.isFinished || !store.isWasmAnalysisEnabled || !store.currentFen) {
+    return [];
+  }
+  const lines = wasm.state.value.lines;
+  if (lines.length === 0) return [];
+  return classifyLocalEngineLines(
+    store.currentFen,
+    lines.map((line) => ({
+      id: line.multipv,
+      depth: line.depth,
+      moverScore:
+        line.moverMate !== null
+          ? { type: "mate", value: line.moverMate }
+          : { type: "cp", value: line.moverCp ?? 0 },
+      wdl: line.wdl,
+      pvUci: line.pvUci,
+    }))
+  );
+});
+
 const activeBoardShapes = computed<CoachDrawShape[]>(() => {
   if (!store.isFinished) return [];
 
   if (store.isWasmAnalysisEnabled) {
-    const chosen =
-      wasm.state.value.lines.find(
-        (l) => l.multipv === selectedSfMultipv.value
-      ) ?? wasm.state.value.lines[0];
-
-    const uci = chosen?.bestMoveUci ?? wasm.state.value.bestMoveUci;
-    const brush = chosen?.arrowBrush ?? wasm.state.value.bestMoveBrush;
-    if (!uci || uci.length < 4) return [];
-
-    return [
-      {
-        orig: uci.slice(0, 2) as Key,
-        dest: uci.slice(2, 4) as Key,
-        brush,
-        modifiers: { lineWidth: 10 },
-      },
-    ];
+    return buildLocalAnalysisShapes(classifiedSfLines.value, {
+      highlightedLineId: selectedSfMultipv.value,
+    });
   }
 
   if (store.isCoachAnalysisEnabled) {
@@ -207,7 +219,7 @@ function applyDeepLinkReplayOrAntiSpoiler() {
 async function loadFromCurrentRoute() {
   wasm.stopAnalysis();
   coach.resetCoach();
-  selectedSfMultipv.value = 1;
+  selectedSfMultipv.value = null;
 
   await store.loadChallenge({
     discipline: routeParams.value.discipline,
@@ -228,7 +240,7 @@ watch(
     }
 
     if (mode === "stockfish") {
-      selectedSfMultipv.value = 1;
+      selectedSfMultipv.value = null;
       wasm.analyzeFen(fen);
     } else {
       wasm.stopAnalysis();
@@ -374,9 +386,12 @@ onUnmounted(() => {
     <StockfishAnalysisCard
       v-if="store.isWasmAnalysisEnabled"
       :wasm-state="wasm.state.value"
+      :classified-lines="classifiedSfLines"
       :current-fen="store.currentFen"
       :selected-multipv="selectedSfMultipv"
-      @select-multipv="(mpv) => (selectedSfMultipv = mpv)"
+      @select-multipv="
+        (mpv) => (selectedSfMultipv = selectedSfMultipv === mpv ? null : mpv)
+      "
     />
 
     <!-- Compact Coach Panel -->
