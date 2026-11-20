@@ -42,7 +42,7 @@ export const engineClientService = {
   },
 
   /**
-   * Requests Coach position explanation and visual_commands from `stockfish_server:5000/uci_fen`.
+   * Requests Coach position explanation and visual_commands from `coach_sf:5000/uci_fen`.
    */
   async analyzeCoachUciFen(
     userId: string,

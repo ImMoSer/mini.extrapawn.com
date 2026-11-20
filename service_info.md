@@ -17,7 +17,7 @@
    - **Авторизация:** Исключительно через Telegram WebApp (`Telegram.WebApp.initData` с криптографической проверкой `HMAC-SHA256`), мгновенный вход в 0 кликов.
    - **BOSS платформы (SuperAdmin):** Пользователь с `telegram_id = "5106981885"` имеет эксклюзивный доступ к панели `/super-admin` для мониторинга всех подключённых клубов, блокировки/разблокировки (`blocked` / `active`), принудительного выхода бота из групп и рассылки промо-кампаний.
    - **Дефолтный (родной) клуб:** Супергруппа **EXTRAPAWNCLUB** (`chat_id = "-1002255301933"`, `https://t.me/EXTRAPAWNCLUB/293770`, топик `ExtraPawnTeleBot`, `message_thread_id = 293770`, владелец `5106981885`). Автоматически создаётся при старте бэкенда (`bootstrapDatabase()`).
-   - **Полная автономность от `n8n` и `stockfish_server`:** Бэкенд Mini App самостоятельно управляет ботом `@ExtraPawnTeleBot` (через нативный `fetch` к Telegram Bot API), расписаниями клубов, рендерингом PNG-картинок стартовой позиции (`board.png` через `@resvg/resvg-js`) и пакетной автоочисткой предыдущей задачи и всех её уведомлений (`deleteMessages`) при выходе следующего челленджа.
+   - **Полная автономность от `n8n`:** Бэкенд Mini App самостоятельно управляет ботом `@ExtraPawnTeleBot` (через нативный `fetch` к Telegram Bot API), расписаниями клубов, рендерингом PNG-картинок стартовой позиции (`board.png` через `@resvg/resvg-js`) и пакетной автоочисткой предыдущей задачи и всех её уведомлений (`deleteMessages`) при выходе следующего челленджа.
 
 ---
 
@@ -56,7 +56,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── services/
 │   │       │   ├── boardImage.service.ts     # Внутренний генератор PNG 600x600 (SVG -> PNG через Resvg)
 │   │       │   ├── puzzleClient.service.ts   # Клиент к puzzle_service:5000 (готовый puzzle_fen)
-│   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и stockfish_server:5000 (Coach)
+│   │       │   ├── engineClient.service.ts   # Клиент к engine-hub:5000 (MOZERO) и coach_sf:5000 (Coach)
 │   │       │   ├── clubMembership.service.ts # Проверка членства участника в супергруппе (быстрый getChatMember 4s/1x, in-flight дедупликация, TTL-кэш + 2-мин кэш DB-fallback при сбоях Telegram)
 │   │       │   ├── attemptVerifier.service.ts# Чистый chessops-движок валидации ходов, сценариев и правил ФИДЕ
 │   │       │   ├── challengePlay.service.ts  # Server-Authoritative шаг попытки (/move, /reset), мьютекс, HOT-апдейт черновика
