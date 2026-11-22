@@ -6,6 +6,7 @@ import {
   isTransientTelegramApiError,
 } from "../bot/telegramApi.js";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db } from "../db/index.js";
 import { challengeAttempts, clubAdmins } from "../db/schema.js";
 
@@ -155,8 +156,14 @@ async function verifyClubMembershipUncached(
     );
     return isMember;
   } catch (err) {
-    console.warn(
-      `[ClubMembership] getChatMember transient error for chat ${chatId}, user ${telegramId}: ${describeNetworkError(err)}`
+    logger.warn(
+      {
+        event: "club_membership_transient_warn",
+        chatId,
+        telegramId,
+        error: describeNetworkError(err),
+      },
+      "getChatMember transient error; using historical DB fallback"
     );
     // Transient outage on api.telegram.org: allow already-known club participants
     // and cache the positive fallback briefly so subsequent moves don't stall on a dead gateway.

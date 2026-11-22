@@ -5,6 +5,7 @@ import {
   type AppLanguage,
 } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db } from "../db/index.js";
 import { clubAdmins, clubs } from "../db/schema.js";
 import { invalidateClubMembershipCache } from "../services/clubMembership.service.js";
@@ -484,9 +485,9 @@ export async function handleMyChatMemberUpdate(
     try {
       await publishChallengeToClub(chatId);
     } catch (err) {
-      console.error(
-        `[TelegramBot] Initial challenge publish failed for ${chatId}:`,
-        err
+      logger.error(
+        { event: "initial_challenge_publish_error", chatId, err },
+        "Initial challenge publish failed on onboarding"
       );
     }
   }

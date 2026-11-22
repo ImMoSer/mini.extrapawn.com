@@ -1,6 +1,7 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { AppLanguage } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db } from "../db/index.js";
 import { clubAdmins, clubs, users } from "../db/schema.js";
 import { notifySuperadminBotIncident } from "./botIncidents.js";
@@ -377,9 +378,14 @@ export async function verifyLiveClubManager(
       );
     return false;
   } catch (err) {
-    console.warn(
-      `[TelegramBot] verifyLiveClubManager transient error for chat ${chatId}, user ${telegramId}:`,
-      err instanceof Error ? err.message : err
+    logger.warn(
+      {
+        event: "telegram_admin_check_error",
+        chatId,
+        telegramId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "verifyLiveClubManager transient error"
     );
     return checkLocalDbFallback();
   }

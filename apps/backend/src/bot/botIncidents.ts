@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import type { TelegramUserPayload } from "./botTypes.js";
 import {
   callTelegramJson,
@@ -44,6 +45,17 @@ export async function notifySuperadminBotIncident(params: {
     return;
   }
   recentSuperadminAlerts.set(dedupKey, nowMs);
+
+  logger.warn(
+    {
+      event: "bot_incident",
+      kind: params.kind,
+      chatId: params.chatId,
+      clubTitle: params.clubTitle,
+      detail: params.detail,
+    },
+    "Club bot incident detected"
+  );
 
   const safeTitle = escapeHtml(params.clubTitle || `Club ${params.chatId}`);
   const clubHandle = params.clubUsername
@@ -102,9 +114,13 @@ export async function notifySuperadminBotIncident(params: {
       },
     });
   } catch (err) {
-    console.warn(
-      "[TelegramBot] Failed to send incident DM to SuperAdmin:",
-      err instanceof Error ? err.message : err
+    logger.warn(
+      {
+        event: "superadmin_dm_error",
+        chatId: params.chatId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to send incident DM to SuperAdmin"
     );
   }
 }

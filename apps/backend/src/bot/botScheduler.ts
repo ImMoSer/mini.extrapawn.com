@@ -1,6 +1,7 @@
 import { and, eq, lt, ne } from "drizzle-orm";
 import { normalizeWeeklySchedule } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db } from "../db/index.js";
 import { challengeAttempts, clubChallenges, clubs } from "../db/schema.js";
 import {
@@ -60,24 +61,35 @@ async function pollTelegramUpdatesOnce(): Promise<number> {
     });
     if (!res.ok) {
       if (res.error_code === 409) {
-        console.warn(
-          "[TelegramBot] 409 Conflict on getUpdates (another instance is polling); backing off 30s."
+        logger.warn(
+          { event: "telegram_polling_conflict" },
+          "409 Conflict on getUpdates (another instance is polling); backing off 30s"
         );
         return POLL_CONFLICT_DELAY_MS;
       }
       consecutivePollErrors += 1;
       const nextDelayMs = computePollRetryDelayMs(consecutivePollErrors);
       if (consecutivePollErrors === 3 || consecutivePollErrors % 10 === 0) {
-        console.warn(
-          `[TelegramBot] Polling API error x${consecutivePollErrors} (will retry in ${Math.round(nextDelayMs / 1000)}s): ${res.description ?? `HTTP ${res.error_code ?? "unknown"}`}`
+        logger.warn(
+          {
+            event: "telegram_polling_api_error",
+            consecutiveErrors: consecutivePollErrors,
+            retryInSec: Math.round(nextDelayMs / 1000),
+            error: res.description ?? `HTTP ${res.error_code ?? "unknown"}`,
+          },
+          "Telegram polling API error"
         );
       }
       return nextDelayMs;
     }
 
     if (consecutivePollErrors >= 3) {
-      console.info(
-        `[TelegramBot] Long-polling restored after ${consecutivePollErrors} consecutive errors.`
+      logger.info(
+        {
+          event: "telegram_polling_restored",
+          previousErrors: consecutivePollErrors,
+        },
+        "Telegram long-polling restored"
       );
     }
     consecutivePollErrors = 0;
@@ -130,8 +142,14 @@ async function pollTelegramUpdatesOnce(): Promise<number> {
     consecutivePollErrors += 1;
     const nextDelayMs = computePollRetryDelayMs(consecutivePollErrors);
     if (consecutivePollErrors === 3 || consecutivePollErrors % 10 === 0) {
-      console.warn(
-        `[TelegramBot] Polling network error x${consecutivePollErrors} (will retry in ${Math.round(nextDelayMs / 1000)}s): ${describeNetworkError(err)}`
+      logger.warn(
+        {
+          event: "telegram_polling_network_error",
+          consecutiveErrors: consecutivePollErrors,
+          retryInSec: Math.round(nextDelayMs / 1000),
+          error: describeNetworkError(err),
+        },
+        "Telegram polling network error"
       );
     }
     return nextDelayMs;
@@ -170,14 +188,21 @@ async function reconcileConnectedClubsAdminsPeriodically(): Promise<void> {
             .where(eq(clubs.chatId, club.chatId));
         }
       } catch (err) {
-        console.warn(
-          `[TelegramBot] Periodic admin sync warning for club ${club.chatId}:`,
-          err instanceof Error ? err.message : err
+        logger.warn(
+          {
+            event: "club_admin_sync_warn",
+            chatId: club.chatId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "Periodic club admin sync warning"
         );
       }
     }
   } catch (err) {
-    console.error("[TelegramBot] Periodic club admin reconcile error:", err);
+    logger.error(
+      { event: "club_admin_reconcile_error", err },
+      "Periodic club admin reconcile error"
+    );
   }
 }
 
@@ -189,14 +214,29 @@ async function purgeExpiredSevenDayRecords(): Promise<void> {
 
   const cutoffDate = new Date(nowMs - 7 * 24 * 60 * 60 * 1000);
   try {
-    await db
+    const deletedAttempts = await db
       .delete(challengeAttempts)
-      .where(lt(challengeAttempts.updatedAt, cutoffDate));
-    await db
+      .where(lt(challengeAttempts.updatedAt, cutoffDate))
+      .returning({ id: challengeAttempts.id });
+    const deletedChallenges = await db
       .delete(clubChallenges)
-      .where(lt(clubChallenges.publishedAt, cutoffDate));
+      .where(lt(clubChallenges.publishedAt, cutoffDate))
+      .returning({ id: clubChallenges.id });
+    if (deletedAttempts.length > 0 || deletedChallenges.length > 0) {
+      logger.info(
+        {
+          event: "retention_cleanup",
+          deletedAttempts: deletedAttempts.length,
+          deletedChallenges: deletedChallenges.length,
+        },
+        "Purged expired 7-day challenge records"
+      );
+    }
   } catch (err) {
-    console.error("[TelegramBot] 7-day retention cleanup error:", err);
+    logger.error(
+      { event: "retention_cleanup_error", err },
+      "7-day retention cleanup error"
+    );
   }
 }
 
@@ -222,9 +262,9 @@ async function runScheduledClubsTick(): Promise<void> {
         try {
           await publishChallengeToClub(club.chatId);
         } catch (err) {
-          console.error(
-            `[TelegramBot] Initial challenge recovery failed for club ${club.chatId}:`,
-            err
+          logger.error(
+            { event: "initial_publish_error", chatId: club.chatId, err },
+            "Initial challenge recovery failed for club"
           );
         }
         continue;
@@ -285,6 +325,14 @@ async function runScheduledClubsTick(): Promise<void> {
               club,
               unresolved
             );
+            logger.info(
+              {
+                event: "club_auto_paused",
+                chatId: club.chatId,
+                challengeId: unresolved.id,
+              },
+              "Club entered auto-pause due to unresolved challenge"
+            );
             if (pauseMessageId) {
               await db
                 .update(clubs)
@@ -295,9 +343,9 @@ async function runScheduledClubsTick(): Promise<void> {
                 .where(eq(clubs.chatId, club.chatId));
             }
           } catch (err) {
-            console.error(
-              `[TelegramBot] Auto-pause notification failed for club ${club.chatId}:`,
-              err
+            logger.error(
+              { event: "auto_pause_notify_error", chatId: club.chatId, err },
+              "Auto-pause notification failed for club"
             );
           }
         }
@@ -317,14 +365,14 @@ async function runScheduledClubsTick(): Promise<void> {
           objective: matchingSlot.objective,
         });
       } catch (err) {
-        console.error(
-          `[TelegramBot] Scheduled publish failed for club ${club.chatId}:`,
-          err
+        logger.error(
+          { event: "scheduled_publish_error", chatId: club.chatId, err },
+          "Scheduled publish failed for club"
         );
       }
     }
   } catch (err) {
-    console.error("[TelegramBot] Scheduler tick error:", err);
+    logger.error({ event: "scheduler_tick_error", err }, "Scheduler tick error");
   } finally {
     isSchedulerTickRunning = false;
   }

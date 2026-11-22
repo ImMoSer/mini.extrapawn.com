@@ -34,7 +34,8 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │       ├── index.ts                      # Точка входа Fastify + запуск циклов бота
 │   │       ├── config/
 │   │       │   ├── networkBootstrap.ts       # Первоочередной ESM-бутстрап IPv4-first + отключение Happy Eyeballs (дублируется в NODE_OPTIONS)
-│   │       │   └── env.ts                    # Fail-Fast валидация переменных окружения
+│   │       │   ├── env.ts                    # Fail-Fast валидация переменных окружения
+│   │       │   └── logger.ts                 # Умное продакшен-логирование Pino JSON (`LOG_LEVEL`, без `pino-pretty` в проде; Fail-Fast на uncaught/unhandled)
 │   │       ├── db/
 │   │       │   ├── schema.ts                 # Drizzle-схема `tele_app.*` (5 таблиц)
 │   │       │   └── index.ts                  # Пул postgres + идемпотентный bootstrapDatabase()
@@ -75,7 +76,7 @@ C:\MY_APPS\CHESS_APP\EXTRAPAWN_MINI/
 │   │           └── superadmin.routes.ts      # Управление клубами, модерация заявок, Postgres-Doctor и промо (/api/superadmin/*)
 │   └── frontend/                             # Vue 3 + Vite + Tailwind CSS v4 + Feature-Sliced Design
 │       ├── Dockerfile                        # Мультистейдж сборка (node:24-alpine -> nginx:alpine)
-│       ├── nginx.conf                        # Раздача SPA + проксирование /api/* на mini-backend:3000
+│       ├── nginx.conf                        # Раздача SPA (без access_log на ассетах) + JSON-лог аномалий/slow-запросов + прокси /api/* на mini-backend:3000
 │       └── src/
 │           ├── app/                          # Инициализация Vue, Pinia, Vue Router + декодер startapp
 │           ├── pages/

@@ -5,6 +5,7 @@ import type {
 } from "shared";
 import { callTelegramJson, escapeHtml } from "../bot/telegramApi.js";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { sqlClient } from "../db/index.js";
 
 const ALLOWED_USER_SCHEMAS = new Set([
@@ -314,8 +315,12 @@ async function runPeriodicDoctorCheck(): Promise<void> {
   try {
     const report = await collectPostgresDoctorReport({ allowAutoHeal: true });
     if (report.auto_healed_tables.length > 0) {
-      console.info(
-        `[PostgresDoctor] Auto-healed tables via VACUUM (ANALYZE): ${report.auto_healed_tables.join(", ")}`
+      logger.warn(
+        {
+          event: "postgres_doctor_autovacuum",
+          tables: report.auto_healed_tables,
+        },
+        "Postgres-Doctor auto-healed bloated tables via VACUUM (ANALYZE)"
       );
     }
 
@@ -356,7 +361,10 @@ async function runPeriodicDoctorCheck(): Promise<void> {
       parse_mode: "HTML",
     });
   } catch (err) {
-    console.error("[PostgresDoctor] Periodic health check failed:", err);
+    logger.error(
+      { event: "postgres_doctor_check_error", err },
+      "PostgresDoctor periodic health check failed"
+    );
   }
 }
 

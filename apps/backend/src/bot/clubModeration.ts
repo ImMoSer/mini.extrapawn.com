@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { AppLanguage } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db } from "../db/index.js";
 import { clubAdmins, clubs } from "../db/schema.js";
 import {
@@ -244,12 +245,20 @@ export async function approvePendingClub(
   try {
     await hooks.publishChallengeToClub(chatId);
   } catch (err) {
-    console.error(
-      `[ClubModeration] Initial challenge publish after approval failed for ${chatId}:`,
-      err instanceof Error ? err.message : err
+    logger.error(
+      {
+        event: "approval_publish_error",
+        chatId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "Initial challenge publish after approval failed"
     );
   }
 
+  logger.info(
+    { event: "club_approved", chatId, title: activeClub.title },
+    "Club approved"
+  );
   return { ok: true, club: activeClub };
 }
 
@@ -288,6 +297,10 @@ export async function rejectPendingClub(
   await db.delete(clubAdmins).where(eq(clubAdmins.chatId, chatId));
   await db.delete(clubs).where(eq(clubs.chatId, chatId));
 
+  logger.info(
+    { event: "club_rejected", chatId, title: row.title },
+    "Club application rejected"
+  );
   return { ok: true };
 }
 

@@ -9,6 +9,7 @@ import {
   type TacticalPuzzlePayload,
 } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { resolveBotEngine } from "./engineClient.service.js";
 
 const puzzleServiceUrl = env.PUZZLE_SERVICE_URL.replace(/\/+$/, "");
@@ -28,9 +29,15 @@ async function fetchWithRetry(
     } catch (err) {
       lastError = err;
       if (attempt < maxAttempts) {
-        console.warn(
-          `[PuzzleClient] Fetch attempt ${attempt}/${maxAttempts} failed for ${url}, retrying...`,
-          err instanceof Error ? err.message : err
+        logger.warn(
+          {
+            event: "puzzle_client_retry",
+            attempt,
+            maxAttempts,
+            url,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "PuzzleClient fetch failed, retrying"
         );
         await new Promise((r) => setTimeout(r, 350 * attempt));
       }

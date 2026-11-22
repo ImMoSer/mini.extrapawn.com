@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { AppLanguage } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db, sqlClient } from "../db/index.js";
 import { clubs } from "../db/schema.js";
 
@@ -162,8 +163,15 @@ export async function callTelegramJson<T>(
     } catch (err) {
       lastError = err;
       if (attempt < maxAttempts) {
-        console.warn(
-          `[TelegramBot] ${method} network error (attempt ${attempt}/${maxAttempts}), retrying: ${describeNetworkError(err)}`
+        logger.warn(
+          {
+            event: "telegram_api_retry",
+            method,
+            attempt,
+            maxAttempts,
+            error: describeNetworkError(err),
+          },
+          "Telegram API network error, retrying"
         );
         await new Promise((r) => setTimeout(r, 400 * attempt));
       }
@@ -183,8 +191,14 @@ export async function deleteTelegramMessage(
       message_id: messageId,
     });
   } catch (err) {
-    console.warn(
-      `[TelegramBot] deleteMessage failed for chat ${chatId} (message ${messageId}): ${describeNetworkError(err)}`
+    logger.warn(
+      {
+        event: "telegram_delete_message_warn",
+        chatId,
+        messageId,
+        error: describeNetworkError(err),
+      },
+      "deleteMessage failed"
     );
   }
 }
@@ -356,8 +370,13 @@ export async function sendTelegramPhotoWithOutcome(
 
       // 504 Gateway Timeout means Telegram's upstream may still finish delivering the photo
       if (statusCode === 504) {
-        console.warn(
-          `[TelegramBot] sendPhoto HTTP 504 for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}); not retrying to prevent duplicate post.`
+        logger.warn(
+          {
+            event: "telegram_sendphoto_504",
+            chatId: params.chatId,
+            threadId: params.messageThreadId ?? 0,
+          },
+          "sendPhoto HTTP 504; not retrying to prevent duplicate post"
         );
         return {
           messageId: null,
@@ -376,15 +395,28 @@ export async function sendTelegramPhotoWithOutcome(
           statusCode === 429
             ? (data?.parameters?.retry_after ?? 2) * 1000
             : 2_500;
-        console.warn(
-          `[TelegramBot] sendPhoto HTTP ${statusCode} (${description}) for chat ${params.chatId}, retrying once in ${delayMs}ms...`
+        logger.warn(
+          {
+            event: "telegram_sendphoto_retry",
+            chatId: params.chatId,
+            statusCode,
+            description,
+            delayMs,
+          },
+          "sendPhoto transient status, retrying once"
         );
         await new Promise((r) => setTimeout(r, delayMs));
         continue;
       }
 
-      console.error(
-        `[TelegramBot] sendPhoto API error for chat ${params.chatId} (thread ${params.messageThreadId ?? 0}): ${description}`
+      logger.error(
+        {
+          event: "telegram_sendphoto_error",
+          chatId: params.chatId,
+          threadId: params.messageThreadId ?? 0,
+          description,
+        },
+        "sendPhoto API error"
       );
       return {
         messageId: null,
@@ -393,16 +425,29 @@ export async function sendTelegramPhotoWithOutcome(
       };
     } catch (err) {
       if (isSafePreConnectError(err) && attempt < maxAttempts) {
-        console.warn(
-          `[TelegramBot] sendPhoto pre-connect error for chat ${params.chatId}, retrying once in 2s: ${describeNetworkError(err)}`
+        logger.warn(
+          {
+            event: "telegram_sendphoto_preconnect_retry",
+            chatId: params.chatId,
+            error: describeNetworkError(err),
+          },
+          "sendPhoto pre-connect error, retrying once"
         );
         await new Promise((r) => setTimeout(r, 2_000));
         continue;
       }
 
       const uncertain = !isSafePreConnectError(err);
-      console.warn(
-        `[TelegramBot] sendPhoto ${uncertain ? "post-upload timeout/socket reset (no retry to prevent duplicate)" : "connect failure"} for chat ${params.chatId}: ${describeNetworkError(err)}`
+      logger.warn(
+        {
+          event: "telegram_sendphoto_network_warn",
+          chatId: params.chatId,
+          uncertain,
+          error: describeNetworkError(err),
+        },
+        uncertain
+          ? "sendPhoto post-upload timeout/socket reset (no retry to prevent duplicate)"
+          : "sendPhoto connect failure"
       );
       return {
         messageId: null,

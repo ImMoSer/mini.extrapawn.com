@@ -9,6 +9,7 @@ import {
   type ClubScheduleSlot,
 } from "shared";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 import { db } from "../db/index.js";
 import { clubChallenges, clubs } from "../db/schema.js";
 import { renderBoardPng } from "../services/boardImage.service.js";
@@ -39,8 +40,9 @@ export async function publishChallengeToClub(
   override?: ClubPublishOverride
 ) {
   if (inFlightClubPublishes.has(chatId)) {
-    console.warn(
-      `[TelegramBot] Skipping concurrent publishChallengeToClub for ${chatId} (already in flight).`
+    logger.warn(
+      { event: "publish_skipped_in_flight", chatId },
+      "Skipping concurrent publishChallengeToClub"
     );
     return null;
   }
@@ -220,8 +222,13 @@ export async function publishChallengeToClub(
 
     if (!tgMessageId && env.TELEGRAM_BOT_TOKEN) {
       if (photoOutcome.deliveryUncertain) {
-        console.warn(
-          `[TelegramBot] sendPhoto delivery uncertain for chat ${chatId} (challenge #${inserted.id}); keeping snapshot and updating lastPublishedAt to prevent duplicate posts.`
+        logger.warn(
+          {
+            event: "publish_delivery_uncertain",
+            chatId,
+            challengeId: inserted.id,
+          },
+          "sendPhoto delivery uncertain; keeping snapshot to prevent duplicates"
         );
         await db
           .update(clubs)
@@ -304,7 +311,19 @@ export async function publishChallengeToClub(
 
     await clearAutoPause(chatId);
 
-    return finalized ?? inserted;
+    const published = finalized ?? inserted;
+    logger.info(
+      {
+        event: "challenge_published",
+        chatId,
+        challengeId: published.id,
+        discipline: puzzle.discipline,
+        puzzleId: puzzle.puzzleId,
+        edition,
+      },
+      "Published club challenge"
+    );
+    return published;
   } finally {
     inFlightClubPublishes.delete(chatId);
   }
@@ -353,9 +372,13 @@ export async function broadcastPromoCampaign(
       }
       const photoRes = await callTelegramJson("sendPhoto", photoPayload);
       if (!photoRes.ok) {
-        console.error(
-          `[TelegramBot] Promo sendPhoto failed for club ${club.chatId}:`,
-          photoRes.description
+        logger.error(
+          {
+            event: "promo_photo_failed",
+            chatId: club.chatId,
+            description: photoRes.description,
+          },
+          "Promo sendPhoto failed"
         );
       }
     }
@@ -377,5 +400,9 @@ export async function broadcastPromoCampaign(
     if (res.ok) sentCount += 1;
   }
 
+  logger.info(
+    { event: "promo_broadcasted", sentCount, activeClubs: activeClubs.length },
+    "Broadcasted promo campaign"
+  );
   return sentCount;
 }
