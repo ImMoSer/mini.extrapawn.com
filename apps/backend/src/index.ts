@@ -21,7 +21,7 @@ import { startPostgresDoctorLoop } from "./services/postgresDoctor.service.js";
 
 const server = Fastify({
   bodyLimit: 256 * 1024, // 256 KB strict request payload cap
-  disableRequestLogging: true,
+  logController: new Fastify.LogController({ disableRequestLogging: true }),
   logger: buildMiniLoggerOptions(),
 });
 bindMiniLogger(server.log);
